@@ -62,10 +62,35 @@ fn montar() -> Catalogo {
                     ]),
                 ],
             ),
+            secao("editor", "O editor de SQL", "Escrever, rodar e parar consultas com segurança.", vec![
+                topico("abas-consulta", "Abas de consulta", vec![
+                    t("Cada aba tem o seu SQL, a sua conexão e o seu resultado: dá para deixar produção numa e homologação na outra."),
+                    t("O texto de cada aba fica guardado e volta quando você abrir o FeatherDB de novo."),
+                    a("Nova aba", "Ctrl+T"),
+                    a("Fechar a aba", "Ctrl+W"),
+                ]),
+                topico("completar", "Completar nomes", vec![
+                    t("Ao digitar, aparecem as tabelas e colunas do banco que começam com o que você escreveu. Depois de tabela. aparecem só as colunas dela."),
+                    t("As setas escolhem, Tab ou Enter põe o nome (com aspas quando precisa) e Esc fecha a lista."),
+                ]),
+                topico("parar-e-avisos", "Parar e avisos", vec![
+                    t("Enquanto a consulta roda, o botão Executar vira Parar e o banco interrompe a consulta."),
+                    t("Um DELETE ou UPDATE sem WHERE mudaria a tabela inteira: o FeatherDB mostra o comando e pergunta antes de rodar."),
+                    t("Se a conexão caiu (servidor reiniciou, computador ficou parado), ela é refeita sozinha. Uma consulta de leitura roda de novo; um comando que muda dados não, para não rodar duas vezes."),
+                ]),
+                topico("formatar-historico", "Formatar, plano e histórico", vec![
+                    t("A varinha formata o SQL (palavras-chave em maiúscula, uma cláusula por linha). Com um trecho selecionado, formata só ele. Ctrl+Z desfaz."),
+                    t("O botão do plano mostra o EXPLAIN do comando do cursor (PostgreSQL, MySQL e SQLite): por onde o banco vai ler os dados."),
+                    t("O histórico guarda as consultas rodadas, com a conexão e quando. Clique numa para pôr no editor."),
+                    a("Formatar o SQL", "Ctrl+Shift+F"),
+                    a("Histórico de consultas", "Ctrl+H"),
+                ]),
+            ]),
             secao("bancos", "Bancos de dados", "PostgreSQL, MySQL, SQLite e MongoDB vêm prontos. Os outros entram por ODBC.", vec![
                 topico("postgres-mysql", "PostgreSQL, MySQL e MariaDB", vec![
                     t("Preencha servidor, porta, banco e usuário. Bancos na nuvem quase sempre exigem a opção de conexão criptografada (TLS)."),
                     t("Deixou o banco em branco? A árvore mostra todos os bancos do servidor; clique num deles para abrir as tabelas."),
+                    t("Servidor interno com certificado próprio? Ligue o TLS e desligue Conferir o certificado (só criptografa), ou escolha o arquivo da autoridade (CA) da empresa. Se o servidor pede certificado do cliente, escolha o certificado e a chave."),
                     t("Tem o endereço inteiro (postgresql://usuario:senha@servidor:5432/banco)? Cole no campo Servidor: os outros campos se preenchem sozinhos."),
                 ]),
                 topico("sqlite", "SQLite", vec![
@@ -94,12 +119,20 @@ fn montar() -> Catalogo {
                 ]),
                 topico("grade", "A grade do resultado", vec![
                     t("A grade traz até mil linhas e rola leve, porque só desenha o que aparece na tela. Para ver outras, use WHERE, ORDER BY ou LIMIT."),
+                    t("Clique no nome de uma coluna para ordenar (de novo inverte, a terceira volta à ordem do banco). Filtrar linhas esconde as que não têm o texto."),
                     t("Copiar tudo põe o resultado na área de transferência, pronto para colar no FeatherSheet ou no Excel. Exportar CSV grava um arquivo."),
                 ]),
                 topico("estrutura", "Estrutura das tabelas", vec![
                     t("A aba Estrutura mostra cada coluna com o tipo, se aceita vazio, o valor padrão e a chave. O lápis edita a coluna e mostra o SQL antes de aplicar."),
                     t("A busca da lateral acha tabelas e colunas pelo nome, em todos os bancos abertos; clicar numa coluna abre a estrutura da tabela dela."),
                     t("Para ter a lista de colunas fora do FeatherDB: copie ou exporte as colunas de uma tabela, ou exporte o dicionário do banco inteiro (botão direito no banco ou na conexão)."),
+                ]),
+                topico("editar-dados", "Editar os dados", vec![
+                    t("Na tabela aberta com clique duplo (PostgreSQL, MySQL e SQLite, com chave primária), clique duas vezes numa célula para mudar o valor. Enter guarda, Esc desiste e o botão NULL esvazia."),
+                    t("As células mudadas ficam marcadas. Salvar mostra os UPDATE antes de gravar; se um falhar, nenhum fica gravado."),
+                ]),
+                topico("sql-da-tabela", "O SQL da tabela", vec![
+                    t("A aba SQL mostra o CREATE TABLE (ou CREATE VIEW) da tabela aberta, para copiar ou pôr no editor."),
                 ]),
                 topico("rascunho", "Seu SQL fica guardado", vec![
                     t("O texto do editor é guardado ao rodar e ao fechar, e volta na próxima vez que você abrir o FeatherDB."),

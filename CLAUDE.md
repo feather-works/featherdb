@@ -19,12 +19,27 @@ outro projeto) e `../feather-ui-pelicano/GUIA-JANELAS.md` (ícones só Tabler, c
 - Árvore: `Item` (conexão) › `Base` (um banco aberto) › tabelas › colunas. Postgres/MySQL com o banco em branco
   listam os bancos (`Banco::bancos`) e cada um abre a sua conexão (`App::abrir_banco`); o `Alvo` (id, banco)
   diz onde o SQL roda.
-- Visão da tabela (`estrutura_ui.rs`): abas Dados e Estrutura; `Coluna` (tipo, vazio, padrão, chave) e o
+- Visão da tabela (`estrutura_ui.rs`): abas Dados, Estrutura e SQL (`Banco::ddl`); `Coluna` (tipo, vazio, padrão, chave) e o
   dicionário (`Banco::dicionario`) vêm do motor; o SQL de editar/criar coluna sai de `estrutura::sql_alterar`/
   `sql_adicionar` e aparece no diálogo antes de rodar. A busca da lateral acha colunas pelo dicionário.
 - A grade (`grade.rs`) monta só as linhas e colunas visíveis (mesma técnica do `examples/csv.rs` do pelicano):
   não voltar a desenhar todas as linhas, foi o que deixou o app lento no PC do usuário (04/11/2026).
 - A interface só chama o motor; consultas rodam em `spawn_blocking` (a janela nunca trava).
+- Rodar (`App::rodar`): DELETE/UPDATE sem WHERE pede confirmação (`featherdb_core::sem_where`); `Banco::cancelador`
+  (Postgres por token, MySQL por `KILL QUERY`, SQLite por interrupt) é pego antes da consulta travar a conexão; sem
+  cancelador (ODBC, Mongo) o Parar larga a conexão e abre outra. `rodada` descarta resposta velha. Conexão caída
+  (`conexao_caiu`) é refeita dentro da tarefa; só leitura (`so_le`) roda de novo. Bloco `BEGIN … COMMIT` que falha
+  leva `ROLLBACK` (usado ao salvar células).
+- Abas (`abas.rs`): a aba da tela mora nos campos do `App`; as outras ficam em `consultas` e trocam com
+  `App::trocar`. Não troca com consulta rodando (a resposta iria para a aba errada). Rascunhos `rascunho.sql`,
+  `rascunho-2.sql`…; histórico em `historico.txt` (`historico.rs`, só SQL).
+- Grade: ordenar/filtrar viram uma lista de índices (`visiveis`, `grade::ordem`); editar células (`celulas.rs`) só
+  com chave primária no resultado, UPDATE de `estrutura::sql_atualizar` (MySQL dobra a `\`).
+- Completar (`completar.rs`): tabelas e colunas da base ativa (dicionário lido na primeira vez); aceitar troca o
+  começo da linha até o cursor com `Content::edit_lines`. Formatar: `featherdb_core::formatar`.
+- TLS (`featherdb-core/src/tls.rs`): conferir (raízes webpki + CA escolhida) ou só criptografar (verificador que
+  aceita o certificado); certificado e chave do cliente em PEM. Campos 10 a 13 de `conexoes.txt`.
+- SQL Server nativo ficou de fora: o `tiberius` puxa `aws-lc` (C, cmake) pelo `tokio-rustls`. Hoje é por ODBC.
 - A senha nunca vai para arquivo: "Lembrar a senha" (ligado por padrão, pedido do usuário em 04/11/2026)
   guarda no cofre do sistema (`featherdb-core::cofre`, crate `keyring`; Secret Service no Linux), só depois
   de conectar com sucesso. Excluir a conexão ou desligar o lembrar apaga do cofre. Arquivos em `~/.config/featherdb/`: `config.txt`, `conexoes.txt`, `rascunho.sql`.

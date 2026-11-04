@@ -63,6 +63,17 @@ pub(crate) static VERSOES: [novidades::Versao; 1] = [novidades::Versao {
         "Busca de colunas em todos os bancos abertos e exportação do dicionário do banco.",
         "A grade monta só o que aparece na tela: rolar mil linhas é leve.",
         "Cole o endereço postgresql:// ou mysql:// e a conexão se preenche sozinha.",
+        "Abas de consulta (Ctrl+T), cada uma com o seu SQL, conexão e resultado.",
+        "Completar nomes de tabela e coluna enquanto você digita.",
+        "Editar os dados na grade com clique duplo; Salvar mostra os UPDATE e grava tudo ou nada.",
+        "Aviso antes de DELETE ou UPDATE sem WHERE.",
+        "Parar a consulta que está rodando.",
+        "Ordenar pela coluna e filtrar as linhas do resultado.",
+        "Histórico das consultas rodadas (Ctrl+H).",
+        "Formatar o SQL (Ctrl+Shift+F) e ver o plano da consulta (EXPLAIN).",
+        "Aba SQL com o CREATE TABLE da tabela.",
+        "Certificados no TLS: só criptografar, autoridade (CA) da empresa e certificado do cliente.",
+        "A conexão que caiu é refeita sozinha.",
     ],
 }];
 

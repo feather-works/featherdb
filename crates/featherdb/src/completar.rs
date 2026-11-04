@@ -17,9 +17,9 @@ pub(crate) struct Opcao {
 
 pub(crate) struct Sugestao {
     /// O pedaço já digitado (o que a escolha substitui), em bytes da linha antes do cursor.
-    prefixo: String,
-    opcoes: Vec<Opcao>,
-    escolhida: usize,
+    pub(crate) prefixo: String,
+    pub(crate) opcoes: Vec<Opcao>,
+    pub(crate) escolhida: usize,
 }
 
 #[derive(Clone, Debug)]

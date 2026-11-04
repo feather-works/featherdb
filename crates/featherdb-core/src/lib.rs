@@ -646,6 +646,31 @@ mod testes {
             let r = b.executar(&format!("SELECT * FROM {}", t.qualificado(Tipo::Postgres)), 3).unwrap();
             println!("{:?}\n{:?}", r.colunas, r.linhas);
         }
+        if let Some(t) = tabelas.first() {
+            let ddl = b.ddl(t).unwrap();
+            println!("{ddl}");
+            assert!(ddl.starts_with("CREATE"));
+        }
+        // Parar: o pg_sleep de 10 s volta cancelado em vez de esperar.
+        let parar = b.cancelador().unwrap();
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            parar();
+        });
+        let inicio = std::time::Instant::now();
+        let e = b.executar("select pg_sleep(10)", 1).unwrap_err();
+        t.join().unwrap();
+        assert!(inicio.elapsed().as_secs() < 5 && e.contains("cancel"), "{e}");
+        // Salvar células numa tabela temporária (some ao desconectar; nada do banco é mexido).
+        b.executar("create temp table featherdb_teste (id int primary key, nome text)", 0).unwrap();
+        b.executar("insert into featherdb_teste values (1, 'Ana'), (2, 'Bia')", 0).unwrap();
+        let cols = ["id".to_owned(), "nome".to_owned()];
+        let up = estrutura::sql_atualizar(Tipo::Postgres, "featherdb_teste", &cols, &[0], &[Some("2".into()), Some("Bia".into())], &[(1, Some("O'Neil".into()))]).unwrap();
+        for c in ["BEGIN", up.as_str(), "COMMIT"] {
+            b.executar(c, 0).unwrap();
+        }
+        let r = b.executar("select nome from featherdb_teste where id = 2", 1).unwrap();
+        assert_eq!(r.linhas[0][0].as_deref(), Some("O'Neil"));
         let r = b.executar("select 1 as um, now()::text as agora, null as nada, 'ção' as texto", 10).unwrap();
         assert_eq!(r.colunas, ["um", "agora", "nada", "texto"]);
         assert_eq!(r.linhas[0][0].as_deref(), Some("1"));

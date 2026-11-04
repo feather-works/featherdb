@@ -1501,7 +1501,7 @@ impl App {
             _ => trf("{} linhas", &[&r.linhas.len()]),
         };
         let tempo = self.tempo.map_or(String::new(), |t| trf("{} ms", &[&t.as_millis()]));
-        let filtro = pelicano::text_input(tr("Filtrar linhas"), &self.filtro_grade).on_input(Msg::FiltroGrade).size(12.5).padding([4, 8]).width(180);
+        let filtro = pelicano::text_input(tr("Filtrar linhas"), &self.filtro_grade).on_input(Msg::FiltroGrade).size(12.5).padding([4, 8]).width(150);
         barra = barra.push(chip(contagem)).push(chip(tempo)).push(horizontal_space());
         if self.chaves_editaveis().is_some() {
             use celulas::AcaoCelula as A;
@@ -1511,9 +1511,8 @@ impl App {
             let n = self.celulas.pendentes.len();
             if n > 0 {
                 barra = barra
-                    .push(chip(trf("{} célula(s) mudada(s)", &[&n])))
                     .push(button(text(tr("Descartar")).size(12.5)).padding([4, 10]).style(estilo_botao_secundario).on_press(Msg::Celula(A::Descartar)))
-                    .push(button(text(tr("Salvar")).size(12.5).font(Font::SEMIBOLD)).padding([4, 12]).style(estilo_botao_primario).on_press(Msg::Celula(A::Salvar)));
+                    .push(button(text(trf("Salvar ({})", &[&n])).size(12.5).font(Font::SEMIBOLD)).padding([4, 12]).style(estilo_botao_primario).on_press(Msg::Celula(A::Salvar)));
             } else if self.celulas.editando.is_none() {
                 barra = barra.push(text(tr("clique duplo edita")).size(11.5).color(COR_TEXTO_MUTED()));
             }
@@ -1750,4 +1749,3 @@ mod testes {
         let _ = std::fs::remove_dir_all(pasta);
     }
 }
-
