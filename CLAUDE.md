@@ -32,7 +32,7 @@ outro projeto) e `../feather-ui-pelicano/GUIA-JANELAS.md` (ícones só Tabler, c
   leva `ROLLBACK` (usado ao salvar células).
 - Abas (`abas.rs`): a aba da tela mora nos campos do `App`; as outras ficam em `consultas` e trocam com
   `App::trocar`. Não troca com consulta rodando (a resposta iria para a aba errada). Rascunhos `rascunho.sql`,
-  `rascunho-2.sql`…; histórico em `historico.txt` (`historico.rs`, só SQL).
+  `rascunho-2.sql`…; histórico em `historico.txt` (`historico.rs`, só SQL; comando com `password`/`identified by` não entra).
 - Grade: ordenar/filtrar viram uma lista de índices (`visiveis`, `grade::ordem`); editar células (`celulas.rs`) só
   com chave primária no resultado, UPDATE de `estrutura::sql_atualizar` (MySQL dobra a `\`).
 - Completar (`completar.rs`): tabelas e colunas da base ativa (dicionário lido na primeira vez); aceitar troca o

@@ -59,6 +59,12 @@ fn de_texto(texto: &str) -> Vec<Entrada> {
         .collect()
 }
 
+/// Comando com senha (ALTER USER … PASSWORD, CREATE USER … IDENTIFIED BY): não vai para o arquivo.
+fn tem_senha(sql: &str) -> bool {
+    let l = sql.to_lowercase();
+    l.contains("password") || l.contains("identified by")
+}
+
 fn agora() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
@@ -70,7 +76,10 @@ pub(crate) fn anotar(comandos: &[String], onde: &str) {
         let _ = std::fs::create_dir_all(p);
     }
     let quando = agora();
-    let novo: String = comandos.iter().map(|c| linha(quando, onde, c)).collect();
+    let novo: String = comandos.iter().filter(|c| !tem_senha(c)).map(|c| linha(quando, onde, c)).collect();
+    if novo.is_empty() {
+        return;
+    }
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&a) {
         let _ = f.write_all(novo.as_bytes());
     }
@@ -143,5 +152,6 @@ mod testes {
         let e = de_texto(&linha(42, "Banco / x", sql));
         assert_eq!((e[0].quando, e[0].onde.as_str(), e[0].sql.as_str()), (42, "Banco / x", sql));
         assert!(de_texto("lixo\n").is_empty());
+        assert!(tem_senha("ALTER USER app WITH PASSWORD 'x'") && tem_senha("create user a identified by 'x'") && !tem_senha("select 1"));
     }
 }

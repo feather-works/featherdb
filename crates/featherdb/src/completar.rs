@@ -3,6 +3,8 @@
 use feather_ui::tema::*;
 use pelicano::{button, column, container, row, text, Align, Element, Font, Key, Length, Modifiers, NamedKey, Style, Task};
 
+use featherdb_core::{CampoDe, Tabela};
+
 use crate::{App, Msg};
 
 const MAX: usize = 8;
@@ -43,20 +45,22 @@ fn palavra(antes: &str) -> (&str, Option<&str>) {
 
 /// As opções para o que foi digitado: começam com `prefixo` (sem diferença de maiúscula), sem a que já está completa.
 /// Depois de `tabela.`, só as colunas dela (se o nome é de uma tabela conhecida).
-pub(crate) fn opcoes(prefixo: &str, dono: Option<&str>, tabelas: &[String], colunas: &[Opcao]) -> Vec<Opcao> {
+/// Roda a cada tecla sobre o dicionário inteiro (100 mil colunas no Datasphere): compara sem copiar nada.
+pub(crate) fn opcoes(prefixo: &str, dono: Option<&str>, tabelas: &[Tabela], colunas: &[CampoDe]) -> Vec<Opcao> {
     let p = prefixo.to_lowercase();
+    // Começa com o prefixo (sem diferença de maiúscula) e é mais comprido que ele.
     let serve = |n: &str| {
-        let l = n.to_lowercase();
-        l.starts_with(&p) && l != p
+        let mut l = n.chars().flat_map(char::to_lowercase);
+        p.chars().all(|x| l.next() == Some(x)) && l.next().is_some()
     };
-    let dono = dono.filter(|d| colunas.iter().any(|c| c.de.eq_ignore_ascii_case(d)));
+    let dono = dono.filter(|d| colunas.iter().any(|c| c.tabela.eq_ignore_ascii_case(d)));
     let mut v: Vec<Opcao> = Vec::new();
     if dono.is_none() {
-        v.extend(tabelas.iter().filter(|t| serve(t)).map(|t| Opcao { nome: t.clone(), de: String::new(), tipo: String::new() }));
+        v.extend(tabelas.iter().filter(|t| serve(&t.nome)).map(|t| Opcao { nome: t.nome.clone(), de: String::new(), tipo: String::new() }));
     }
-    for c in colunas.iter().filter(|c| serve(&c.nome) && dono.is_none_or(|d| c.de.eq_ignore_ascii_case(d))) {
-        if !v.iter().any(|o| o.nome == c.nome) {
-            v.push(c.clone());
+    for c in colunas.iter().filter(|c| serve(&c.coluna) && dono.is_none_or(|d| c.tabela.eq_ignore_ascii_case(d))) {
+        if !v.iter().any(|o| o.nome == c.coluna) {
+            v.push(Opcao { nome: c.coluna.clone(), de: c.tabela.clone(), tipo: c.tipo.clone() });
         }
         if v.len() > 200 {
             break;
@@ -92,19 +96,22 @@ impl App {
         if base.banco.is_none() {
             return Task::none();
         }
-        let tabelas: Vec<String> = base.tabelas.iter().map(|t| t.nome.clone()).collect();
-        let mut colunas: Vec<Opcao> = match &base.dicionario {
-            Some(d) => d.iter().map(|c| Opcao { nome: c.coluna.clone(), de: c.tabela.clone(), tipo: c.tipo.clone() }).collect(),
-            None => Vec::new(),
-        };
-        if base.dicionario.is_none() {
-            for t in &base.tabelas {
-                for c in base.colunas.get(&t.qualificado(tipo)).map(Vec::as_slice).unwrap_or_default() {
-                    colunas.push(Opcao { nome: c.nome.clone(), de: t.nome.clone(), tipo: c.tipo.clone() });
-                }
+        // Sem o dicionário ainda: as colunas que a árvore já leu (poucas).
+        let lidas: Vec<CampoDe>;
+        let colunas = match &base.dicionario {
+            Some(d) => d.as_slice(),
+            None => {
+                lidas = base
+                    .tabelas
+                    .iter()
+                    .flat_map(|t| {
+                        base.colunas.get(&t.qualificado(tipo)).into_iter().flatten().map(|c| CampoDe { esquema: t.esquema.clone(), tabela: t.nome.clone(), coluna: c.nome.clone(), tipo: c.tipo.clone() })
+                    })
+                    .collect();
+                &lidas
             }
-        }
-        let opcoes = opcoes(prefixo, dono, &tabelas, &colunas);
+        };
+        let opcoes = opcoes(prefixo, dono, &base.tabelas, colunas);
         let ler = base.dicionario.is_none() && !base.lendo_dicionario;
         if !opcoes.is_empty() {
             self.sugestao = Some(Sugestao { prefixo: prefixo.to_owned(), opcoes, escolhida: 0 });
@@ -127,6 +134,13 @@ impl App {
             Tecla::Aceitar(i) => {
                 let s = self.sugestao.take().expect("sugestão aberta");
                 let Some(o) = s.opcoes.get(i.unwrap_or(s.escolhida)) else { return };
+                // O cursor andou (setas, mouse) depois da lista abrir: o pedaço antes dele já não é o digitado.
+                let (l, c) = self.editor.cursor();
+                let linha = self.editor.line(l).unwrap_or_default();
+                let fim = linha.char_indices().nth(c.saturating_sub(1)).map_or(linha.len(), |(b, _)| b);
+                if palavra(&linha[..fim]).0 != s.prefixo {
+                    return;
+                }
                 let tipo = self.ativa.as_ref().map_or(featherdb_core::Tipo::Postgres, |a| self.tipo(a.0));
                 let nome = featherdb_core::identificador(&o.nome, tipo);
                 let (_, c) = self.editor.cursor();
@@ -198,8 +212,9 @@ mod testes {
 
     #[test]
     fn opcoes_por_prefixo_e_pela_tabela() {
-        let c = |n: &str, de: &str| Opcao { nome: n.into(), de: de.into(), tipo: "text".into() };
-        let tabelas = vec!["pedidos".to_owned(), "pessoas".to_owned()];
+        let c = |n: &str, de: &str| CampoDe { esquema: String::new(), tabela: de.into(), coluna: n.into(), tipo: "text".into() };
+        let t = |n: &str| Tabela { esquema: String::new(), nome: n.into(), visao: false };
+        let tabelas = vec![t("pedidos"), t("pessoas")];
         let colunas = vec![c("pedido_id", "itens"), c("nome", "pessoas"), c("nome_fantasia", "lojas")];
         let nomes = |v: Vec<Opcao>| v.into_iter().map(|o| o.nome).collect::<Vec<_>>();
         assert_eq!(nomes(opcoes("PE", None, &tabelas, &colunas)), ["pedidos", "pessoas", "pedido_id"]);

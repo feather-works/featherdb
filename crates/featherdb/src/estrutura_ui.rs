@@ -67,7 +67,7 @@ impl App {
         let Some(banco) = self.base(&alvo).and_then(|b| b.banco.clone()) else { return Task::none() };
         let chave = t.qualificado(self.tipo(alvo.0));
         em_segundo_plano(
-            move || banco.lock().map_err(|_| tr("A conexão travou; desconecte e conecte de novo.").to_owned())?.colunas(&t),
+            move || crate::travar(&banco)?.colunas(&t),
             move |r| Msg::Colunas(alvo, chave, r, exportar),
         )
     }
@@ -94,7 +94,7 @@ impl App {
     pub(crate) fn ler_dicionario(&self, alvo: Alvo, exportar: bool) -> Task<Msg> {
         let Some(banco) = self.base(&alvo).and_then(|b| b.banco.clone()) else { return Task::none() };
         em_segundo_plano(
-            move || banco.lock().map_err(|_| tr("A conexão travou; desconecte e conecte de novo.").to_owned())?.dicionario(),
+            move || crate::travar(&banco)?.dicionario(),
             move |r| Msg::Dicionario(alvo, r, exportar),
         )
     }
@@ -188,7 +188,7 @@ impl App {
         }
         let Some(banco) = self.base(&alvo).and_then(|b| b.banco.clone()) else { return Task::none() };
         self.ddl = Some((chave.clone(), None));
-        em_segundo_plano(move || banco.lock().map_err(|_| tr("A conexão travou; desconecte e conecte de novo.").to_owned())?.ddl(&t), move |r| Msg::Ddl(chave, r))
+        em_segundo_plano(move || crate::travar(&banco)?.ddl(&t), move |r| Msg::Ddl(chave, r))
     }
 
     /// A aba SQL: o CREATE da tabela, para copiar ou levar ao editor.

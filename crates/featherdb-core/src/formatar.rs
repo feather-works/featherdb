@@ -22,13 +22,18 @@ enum Pedaco<'a> {
     Comentario(&'a str),
 }
 
-fn pedacos(sql: &str) -> Vec<Pedaco<'_>> {
+/// Os pedaços do SQL e, para cada um, se ele vinha colado no anterior (sem espaço no meio).
+fn pedacos(sql: &str) -> (Vec<Pedaco<'_>>, Vec<bool>) {
     let b = sql.as_bytes();
     let mut saida = Vec::new();
+    let mut colado = Vec::new();
     let mut i = 0;
     while i < b.len() {
         let c = b[i];
         let ini = i;
+        if !c.is_ascii_whitespace() && colado.len() == saida.len() {
+            colado.push(ini > 0 && !b[ini - 1].is_ascii_whitespace());
+        }
         if c.is_ascii_whitespace() {
             i += 1;
             continue;
@@ -51,8 +56,9 @@ fn pedacos(sql: &str) -> Vec<Pedaco<'_>> {
         }
         if matches!(c, b'\'' | b'"' | b'`') {
             i += 1;
-            while i < b.len() && b[i] != c {
-                i += 1;
+            // A aspa dobrada ('O''Neil') é parte do texto, não o fim.
+            while i < b.len() && (b[i] != c || b.get(i + 1) == Some(&c)) {
+                i += if b[i] == c { 2 } else { 1 };
             }
             i = (i + 1).min(b.len());
             saida.push(Pedaco::Outro(&sql[ini..i]));
@@ -72,12 +78,13 @@ fn pedacos(sql: &str) -> Vec<Pedaco<'_>> {
         }
         saida.push(Pedaco::Outro(&sql[ini..i]));
     }
-    saida
+    (saida, colado)
 }
 
 /// Formata o SQL. Comandos que não são SQL (MongoDB) a interface não manda para cá.
 pub fn formatar(sql: &str) -> String {
-    let p = pedacos(sql);
+    // O que vinha colado continua colado: E'texto', [Nome Cliente], a='x'.
+    let (p, colado) = pedacos(sql);
     let mut s = String::new();
     let mut nivel = 0usize;
     // Nos itens do SELECT (no nível de fora) cada vírgula quebra a linha.
@@ -96,6 +103,7 @@ pub fn formatar(sql: &str) -> String {
     // O AND de `BETWEEN x AND y` não quebra a linha.
     let mut entre = false;
     for (k, pedaco) in p.iter().enumerate() {
+        let junto = colado[k];
         let proxima = match p.get(k + 1) {
             Some(Pedaco::Palavra(w)) => w.to_ascii_uppercase(),
             _ => String::new(),
@@ -131,7 +139,7 @@ pub fn formatar(sql: &str) -> String {
                     *na_lista.last_mut().unwrap() = m == "SELECT";
                 } else if matches!(m.as_str(), "AND" | "OR") && !(entre && m == "AND") {
                     quebra(&mut s, nivel, 1);
-                } else if !s.is_empty() && !s.ends_with(['\n', ' ', '(', '.', ':']) {
+                } else if !junto && !s.is_empty() && !s.ends_with(['\n', ' ', '(', '.', ':']) {
                     s.push(' ');
                 }
                 if m == "SELECT" && anterior == "(" {
@@ -199,7 +207,7 @@ pub fn formatar(sql: &str) -> String {
                         s.push_str(o);
                     }
                     _ => {
-                        if !s.is_empty() && !s.ends_with(['\n', ' ', '(', '.']) && !s.ends_with("::") {
+                        if !junto && !s.is_empty() && !s.ends_with(['\n', ' ', '(', '.']) && !s.ends_with("::") {
                             s.push(' ');
                         }
                         s.push_str(o);
@@ -243,6 +251,13 @@ mod testes {
             formatar(t);
         }
         assert_eq!(formatar("select ção from t"), "SELECT ção\nFROM t\n");
+    }
+
+    #[test]
+    fn textos_e_nomes_colados_ficam_como_estao() {
+        assert_eq!(formatar("select * from t where nome = 'O''Neil'"), "SELECT *\nFROM t\nWHERE nome = 'O''Neil'\n");
+        assert_eq!(formatar("select E'a\\nb', [Nome Cliente] from [dbo].[t]"), "SELECT E'a\\nb',\n  [Nome Cliente]\nFROM [dbo].[t]\n");
+        assert_eq!(formatar("select a, b from t"), "SELECT a,\n  b\nFROM t\n");
     }
 
     #[test]

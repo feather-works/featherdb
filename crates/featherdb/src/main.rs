@@ -404,12 +404,12 @@ impl App {
 
     fn carregar_tabelas(&self, alvo: Alvo) -> Task<Msg> {
         let Some(banco) = self.base(&alvo).and_then(|b| b.banco.clone()) else { return Task::none() };
-        em_segundo_plano(move || banco.lock().map_err(|_| tr("A conexão travou; desconecte e conecte de novo.").to_owned())?.tabelas(), move |r| Msg::Tabelas(alvo, r))
+        em_segundo_plano(move || travar(&banco)?.tabelas(), move |r| Msg::Tabelas(alvo, r))
     }
 
     fn carregar_bancos(&self, id: u64) -> Task<Msg> {
         let Some(banco) = self.base(&(id, None)).and_then(|b| b.banco.clone()) else { return Task::none() };
-        em_segundo_plano(move || banco.lock().map_err(|_| tr("A conexão travou; desconecte e conecte de novo.").to_owned())?.bancos(), move |r| Msg::Bancos(id, r))
+        em_segundo_plano(move || travar(&banco)?.bancos(), move |r| Msg::Bancos(id, r))
     }
 
     /// Roda os comandos na conexão ativa; fica o resultado do último. DELETE ou UPDATE sem WHERE
@@ -457,42 +457,53 @@ impl App {
         em_segundo_plano(
             move || {
                 let inicio = Instant::now();
-                let mut b = match banco.lock() {
-                    Ok(b) => b,
-                    Err(_) => return (Err(tr("A conexão travou; desconecte e conecte de novo.").to_owned()), inicio.elapsed(), false),
+                let (r, nova) = match travar(&banco) {
+                    Ok(mut b) => rodar_comandos(&mut b, &comandos, conexao.as_ref(), &senha),
+                    Err(e) => (Err(e), false),
                 };
-                let mut r = Ok(Resultado::default());
-                let mut nova = false;
-                for (i, c) in comandos.iter().enumerate() {
-                    r = b.executar(c, LIMITE_LINHAS);
-                    // A conexão caiu (servidor reiniciou, ficou parada tempo demais): conecta de novo uma vez.
-                    // Leitura roda de novo; comando que muda dados não, porque pode ter chegado a rodar.
-                    if let (Err(e), Some(con), false) = (&r, &conexao, nova) {
-                        if featherdb_core::conexao_caiu(e) {
-                            if let Ok(novo) = con.conectar(&senha) {
-                                *b = novo;
-                                nova = true;
-                                r = if featherdb_core::so_le(c) && i == 0 {
-                                    b.executar(c, LIMITE_LINHAS)
-                                } else {
-                                    Err(tr("A conexão tinha caído e foi refeita. O comando não rodou: confira e rode de novo.").to_owned())
-                                };
-                            }
-                        }
-                    }
-                    if r.is_err() {
-                        break;
-                    }
-                }
-                // Gravação em bloco (BEGIN … COMMIT) que falhou no meio: desfaz o que já tinha ido.
-                if r.is_err() && comandos.first().is_some_and(|c| c == "BEGIN") {
-                    let _ = b.executar("ROLLBACK", 0);
-                }
                 (r, inicio.elapsed(), nova)
             },
             move |(r, t, nova)| Msg::Executado(rodada, r, t, nova),
         )
     }
+}
+
+/// Pega a conexão (ela fica presa enquanto uma consulta roda nela).
+fn travar(banco: &Aberto) -> Result<std::sync::MutexGuard<'_, Box<dyn Banco>>, String> {
+    banco.lock().map_err(|_| tr("A conexão travou; desconecte e conecte de novo.").to_owned())
+}
+
+/// Roda os comandos em ordem e para no primeiro erro; fica o resultado do último. Diz também se
+/// a conexão tinha caído e foi refeita (com `conexao`, uma vez).
+fn rodar_comandos(b: &mut Box<dyn Banco>, comandos: &[String], conexao: Option<&Conexao>, senha: &str) -> (Result<Resultado, String>, bool) {
+    let mut r = Ok(Resultado::default());
+    let mut nova = false;
+    for (i, c) in comandos.iter().enumerate() {
+        r = b.executar(c, LIMITE_LINHAS);
+        // A conexão caiu (servidor reiniciou, ficou parada tempo demais): conecta de novo uma vez.
+        // Leitura roda de novo; comando que muda dados não, porque pode ter chegado a rodar.
+        if let (Err(e), Some(con), false) = (&r, conexao, nova) {
+            if featherdb_core::conexao_caiu(e) {
+                if let Ok(novo) = con.conectar(senha) {
+                    *b = novo;
+                    nova = true;
+                    r = if featherdb_core::so_le(c) && i == 0 {
+                        b.executar(c, LIMITE_LINHAS)
+                    } else {
+                        Err(tr("A conexão tinha caído e foi refeita. O comando não rodou: confira e rode de novo.").to_owned())
+                    };
+                }
+            }
+        }
+        if r.is_err() {
+            break;
+        }
+    }
+    // Gravação em bloco (BEGIN … COMMIT) que falhou no meio: desfaz o que já tinha ido.
+    if r.is_err() && comandos.first().is_some_and(|c| c == "BEGIN") {
+        let _ = b.executar("ROLLBACK", 0);
+    }
+    (r, nova)
 }
 
 impl Item {
@@ -825,7 +836,7 @@ impl pelicano::App for App {
                     // O banco interrompe e a resposta chega como erro ("cancelado").
                     Some(c) => {
                         self.aviso = tr("Parando a consulta…").to_owned();
-                        return em_segundo_plano(move || c(), |_| Msg::FecharMenu);
+                        std::thread::spawn(move || c());
                     }
                     // Driver sem cancelamento (ODBC, MongoDB): larga a conexão ocupada e abre outra.
                     None => {
@@ -1726,6 +1737,18 @@ mod testes {
         app.editor = Content::with_text("delete from b;\nselect 1");
         assert_eq!(app.editor.cursor(), (1, 1));
         assert_eq!(app.comando_atual(), "delete from b");
+    }
+
+    #[test]
+    fn salvar_em_bloco_que_falha_nao_deixa_nada_gravado() {
+        let mut b = Conexao { caminho: ":memory:".into(), ..Conexao::nova(Tipo::Sqlite) }.conectar("").unwrap();
+        b.executar("create table t (id integer primary key, nome text); insert into t values (1, 'Ana'), (2, 'Bia')", 0).unwrap();
+        let c = |s: &str| s.to_owned();
+        let comandos = [c("BEGIN"), c("UPDATE t SET nome = 'Eva' WHERE id = 1"), c("UPDATE t SET nao_existe = 1 WHERE id = 2"), c("COMMIT")];
+        let (r, nova) = rodar_comandos(&mut b, &comandos, None, "");
+        assert!(r.is_err() && !nova);
+        let r = b.executar("select nome from t where id = 1", 1).unwrap();
+        assert_eq!(r.linhas[0][0].as_deref(), Some("Ana"));
     }
 
     #[test]
