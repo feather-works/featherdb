@@ -1,0 +1,16 @@
+[package]
+name = "featherdb"
+description = "FeatherDB: cliente de banco de dados leve (Postgres, MySQL, SQLite e ODBC)"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+featherdb-core = { path = "../featherdb-core" }
+pelicano = { git = "https://github.com/feather-works/pelicano.git", tag = "v0.1.27" }
+feather-ui = { git = "https://github.com/feather-works/feather-ui.git", tag = "v0.3.13" }
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
+arboard = { version = "3.6", features = ["wayland-data-control"] }
+tokio = { version = "1", features = ["rt"] }
+serde_json = "1"

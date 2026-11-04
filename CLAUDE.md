@@ -1,0 +1,21 @@
+# FeatherDB
+
+Regras gerais da suíte: `../FeatherOffice/CLAUDE.md` (pt-BR, privacidade, nada de copiar código de
+outro projeto) e `../feather-ui-pelicano/GUIA-JANELAS.md` (ícones só Tabler, cores só pelos tokens de
+`feather_ui::tema`, nada de emoji).
+
+- Cliente de banco de dados leve (a ideia do DBeaver), criado em 04/11/2026 a pedido do usuário.
+- Interface em **pelicano** + `feather-ui` (tags publicadas, sem `[patch]`).
+- `featherdb-core`: conexões (`Conexao`, `ler_conexoes`/`gravar_conexoes`), o trait `Banco` e os drivers:
+  Postgres (`postgres`, protocolo simples: tudo vem como texto; TLS com rustls), MySQL (`mysql`, 100% Rust),
+  SQLite (`rusqlite` com o C embutido, exceção à regra "sem C" aceita pelo usuário) e ODBC
+  (`odbc.rs`: a API ODBC carregada com `libloading` só ao conectar; o app abre sem unixODBC).
+  ODBC é o caminho para Datasphere/HANA, TIBCO TDV e outros (o papel do JDBC no DBeaver, sem Java).
+- A interface só chama o motor; consultas rodam em `spawn_blocking` (a janela nunca trava).
+- A senha nunca vai para o disco. Arquivos em `~/.config/featherdb/`: `config.txt`, `conexoes.txt`, `rascunho.sql`.
+- Idiomas: o texto em português no código é a chave; `idiomas/interface.{en-US,es-ES}.json`. Os testes
+  conferem que todo `tr`/`trf` literal, a Ajuda e as Novidades têm tradução nas duas línguas.
+- Marca: a pena da suíte recolorida em `#0b7285` dentro do app (`main.rs::marca`); passar para
+  `feather_ui::marca::Produto` quando a feather-ui ganhar o FeatherDB.
+- Sem servidor local para testar Postgres/MySQL nesta máquina: SQLite tem teste de ponta a ponta e o
+  ODBC é conferido contra o unixODBC (erro `IM002` de DSN inexistente).

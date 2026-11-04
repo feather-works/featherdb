@@ -1,0 +1,18 @@
+[package]
+name = "featherdb-core"
+description = "FeatherDB: conexões, consultas e catálogo (Postgres, MySQL, SQLite e ODBC)"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+postgres = "0.19"
+tokio-postgres-rustls = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
+mysql = { version = "26", default-features = false, features = ["minimal-rust", "rustls-tls-ring"] }
+# SQLite: o C vem compilado dentro do binário (nada para instalar no sistema).
+rusqlite = { version = "0.37", features = ["bundled"] }
+# ODBC é carregado na hora de conectar: o app abre mesmo sem o unixODBC instalado.
+libloading = "0.8"

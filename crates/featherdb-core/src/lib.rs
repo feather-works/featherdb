@@ -1,0 +1,373 @@
+//! O motor do FeatherDB: as conexões guardadas, os drivers (Postgres, MySQL, SQLite e ODBC),
+//! as consultas e o catálogo (tabelas e colunas). Nada de interface aqui.
+mod mysql_banco;
+mod odbc;
+mod postgres_banco;
+mod sqlite_banco;
+
+use std::path::{Path, PathBuf};
+
+/// Quantas linhas uma consulta traz para a tela (o resto fica no banco).
+pub const LIMITE_LINHAS: usize = 1000;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tipo {
+    Postgres,
+    MySql,
+    Sqlite,
+    /// Qualquer banco com driver ODBC instalado: SAP HANA/Datasphere, TIBCO TDV, SQL Server, Oracle…
+    Odbc,
+}
+
+impl Tipo {
+    pub const TODOS: [Tipo; 4] = [Tipo::Postgres, Tipo::MySql, Tipo::Sqlite, Tipo::Odbc];
+    pub fn nome(self) -> &'static str {
+        match self {
+            Tipo::Postgres => "PostgreSQL",
+            Tipo::MySql => "MySQL / MariaDB",
+            Tipo::Sqlite => "SQLite",
+            Tipo::Odbc => "ODBC",
+        }
+    }
+    pub fn porta_padrao(self) -> u16 {
+        match self {
+            Tipo::Postgres => 5432,
+            Tipo::MySql => 3306,
+            Tipo::Sqlite | Tipo::Odbc => 0,
+        }
+    }
+    fn codigo(self) -> &'static str {
+        match self {
+            Tipo::Postgres => "postgres",
+            Tipo::MySql => "mysql",
+            Tipo::Sqlite => "sqlite",
+            Tipo::Odbc => "odbc",
+        }
+    }
+    fn de_codigo(c: &str) -> Option<Tipo> {
+        Tipo::TODOS.into_iter().find(|t| t.codigo() == c)
+    }
+}
+
+impl std::fmt::Display for Tipo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.nome())
+    }
+}
+
+/// Uma conexão guardada. A senha nunca é gravada no disco: é pedida ao conectar.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Conexao {
+    pub nome: String,
+    pub tipo: Tipo,
+    pub host: String,
+    pub porta: u16,
+    pub banco: String,
+    pub usuario: String,
+    /// SQLite: o arquivo. ODBC: a string de conexão (`DSN=...` ou `Driver={...};Server=...`).
+    pub caminho: String,
+    /// Postgres e MySQL: conexão criptografada (TLS).
+    pub tls: bool,
+}
+
+impl Conexao {
+    pub fn nova(tipo: Tipo) -> Conexao {
+        Conexao {
+            nome: String::new(),
+            tipo,
+            host: if matches!(tipo, Tipo::Postgres | Tipo::MySql) { "localhost".into() } else { String::new() },
+            porta: tipo.porta_padrao(),
+            banco: String::new(),
+            usuario: String::new(),
+            caminho: String::new(),
+            tls: false,
+        }
+    }
+
+    /// O que aparece na lista quando a pessoa não deu nome.
+    pub fn rotulo(&self) -> String {
+        if !self.nome.trim().is_empty() {
+            return self.nome.clone();
+        }
+        match self.tipo {
+            Tipo::Sqlite => Path::new(&self.caminho).file_name().map_or("SQLite".into(), |n| n.to_string_lossy().into_owned()),
+            Tipo::Odbc => "ODBC".into(),
+            _ => format!("{}@{}", if self.banco.is_empty() { self.tipo.nome() } else { &self.banco }, self.host),
+        }
+    }
+
+    /// Conecta. Bloqueia: a interface chama numa thread à parte.
+    pub fn conectar(&self, senha: &str) -> Result<Box<dyn Banco>, String> {
+        match self.tipo {
+            Tipo::Postgres => postgres_banco::conectar(self, senha),
+            Tipo::MySql => mysql_banco::conectar(self, senha),
+            Tipo::Sqlite => sqlite_banco::conectar(self),
+            Tipo::Odbc => odbc::conectar(&self.caminho, &self.usuario, senha),
+        }
+    }
+}
+
+/// O que uma consulta devolveu.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Resultado {
+    pub colunas: Vec<String>,
+    /// `None` é NULL.
+    pub linhas: Vec<Vec<Option<String>>>,
+    /// Comandos sem linhas (INSERT, UPDATE…): quantas linhas mudaram.
+    pub afetadas: Option<u64>,
+    /// Havia mais que [`LIMITE_LINHAS`] linhas.
+    pub cortado: bool,
+}
+
+/// Uma tabela ou visão do catálogo.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Tabela {
+    pub esquema: String,
+    pub nome: String,
+    pub visao: bool,
+}
+
+impl Tabela {
+    /// O nome para usar no SQL (`esquema.tabela`, com aspas quando precisa).
+    pub fn qualificado(&self, tipo: Tipo) -> String {
+        let q = |s: &str| identificador(s, tipo);
+        if self.esquema.is_empty() { q(&self.nome) } else { format!("{}.{}", q(&self.esquema), q(&self.nome)) }
+    }
+}
+
+/// Coloca aspas no identificador só quando ele não é minúsculo simples.
+pub fn identificador(s: &str, tipo: Tipo) -> String {
+    let simples = !s.is_empty() && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') && !s.starts_with(|c: char| c.is_ascii_digit());
+    if simples {
+        return s.to_owned();
+    }
+    match tipo {
+        Tipo::MySql => format!("`{}`", s.replace('`', "``")),
+        _ => format!("\"{}\"", s.replace('"', "\"\"")),
+    }
+}
+
+/// Literal de texto SQL (aspas simples dobradas).
+pub(crate) fn literal(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+/// Uma conexão aberta.
+pub trait Banco: Send {
+    /// Roda o SQL e traz até `limite` linhas.
+    fn executar(&mut self, sql: &str, limite: usize) -> Result<Resultado, String>;
+
+    /// Tabelas e visões, menos as do sistema.
+    fn tabelas(&mut self) -> Result<Vec<Tabela>, String> {
+        let r = self.executar(&self.sql_tabelas(), usize::MAX)?;
+        Ok(r.linhas
+            .into_iter()
+            .map(|l| {
+                let campo = |i: usize| l.get(i).cloned().flatten().unwrap_or_default();
+                Tabela { esquema: campo(0), nome: campo(1), visao: campo(2).contains("VIEW") }
+            })
+            .collect())
+    }
+
+    /// Nome e tipo de cada coluna, na ordem da tabela.
+    fn colunas(&mut self, t: &Tabela) -> Result<Vec<(String, String)>, String> {
+        let sql = format!(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = {} AND table_name = {} ORDER BY ordinal_position",
+            literal(&t.esquema),
+            literal(&t.nome)
+        );
+        let r = self.executar(&sql, usize::MAX)?;
+        Ok(r.linhas.into_iter().map(|l| (l.first().cloned().flatten().unwrap_or_default(), l.get(1).cloned().flatten().unwrap_or_default())).collect())
+    }
+
+    /// Consulta do catálogo para o `tabelas` padrão (esquema, nome, tipo).
+    fn sql_tabelas(&self) -> String {
+        String::new()
+    }
+}
+
+/// O comando em volta do cursor (`linha` e `coluna` contam de 0, coluna em caracteres): o trecho
+/// entre os `;` mais próximos, ignorando `;` dentro de aspas e comentários. Vazio se só tiver espaço.
+pub fn comando_no_cursor(texto: &str, linha: usize, coluna: usize) -> String {
+    let mut pos = 0;
+    for (i, l) in texto.split('\n').enumerate() {
+        if i == linha {
+            pos += l.char_indices().nth(coluna).map_or(l.len(), |(b, _)| b);
+            break;
+        }
+        pos += l.len() + 1;
+    }
+    let (mut inicio, mut anterior) = (0, String::new());
+    for fim in separadores(texto).into_iter().chain([texto.len()]) {
+        let trecho = texto[inicio..fim].trim();
+        if pos <= fim {
+            // Cursor depois do `;`, num trecho só de espaço: vale o comando que acabou de fechar.
+            return if trecho.is_empty() { anterior } else { trecho.to_owned() };
+        }
+        if !trecho.is_empty() {
+            anterior = trecho.to_owned();
+        }
+        inicio = fim + 1;
+    }
+    anterior
+}
+
+/// Todos os comandos do texto, sem os vazios.
+pub fn dividir(texto: &str) -> Vec<String> {
+    let mut saida = Vec::new();
+    let mut inicio = 0;
+    for fim in separadores(texto).into_iter().chain([texto.len()]) {
+        let t = texto[inicio..fim].trim();
+        if !t.is_empty() {
+            saida.push(t.to_owned());
+        }
+        inicio = (fim + 1).min(texto.len());
+    }
+    saida
+}
+
+/// Posição (em bytes) de cada `;` que separa comandos.
+fn separadores(texto: &str) -> Vec<usize> {
+    let b = texto.as_bytes();
+    let mut saida = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            q @ (b'\'' | b'"' | b'`') => {
+                i += 1;
+                while i < b.len() && b[i] != q {
+                    i += 1;
+                }
+            }
+            b'-' if b.get(i + 1) == Some(&b'-') => {
+                while i < b.len() && b[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'/' if b.get(i + 1) == Some(&b'*') => {
+                i += 2;
+                while i + 1 < b.len() && !(b[i] == b'*' && b[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 1;
+            }
+            b';' => saida.push(i),
+            _ => {}
+        }
+        i += 1;
+    }
+    saida
+}
+
+/// As conexões guardadas em `conexoes.txt`: uma por linha, campos separados por tabulação.
+pub fn ler_conexoes(arquivo: &Path) -> Vec<Conexao> {
+    let Ok(texto) = std::fs::read_to_string(arquivo) else { return Vec::new() };
+    texto
+        .lines()
+        .filter_map(|l| {
+            let c: Vec<&str> = l.split('\t').collect();
+            let [tipo, nome, host, porta, banco, usuario, caminho, tls] = c[..] else { return None };
+            Some(Conexao {
+                nome: nome.into(),
+                tipo: Tipo::de_codigo(tipo)?,
+                host: host.into(),
+                porta: porta.parse().ok()?,
+                banco: banco.into(),
+                usuario: usuario.into(),
+                caminho: caminho.into(),
+                tls: tls == "1",
+            })
+        })
+        .collect()
+}
+
+/// Grava num arquivo ao lado e troca de uma vez (o anterior nunca fica pela metade).
+pub fn gravar_conexoes(arquivo: &Path, conexoes: &[Conexao]) -> Result<(), String> {
+    let limpo = |s: &str| s.replace(['\t', '\n', '\r'], " ");
+    let texto: String = conexoes
+        .iter()
+        .map(|c| {
+            format!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                c.tipo.codigo(),
+                limpo(&c.nome),
+                limpo(&c.host),
+                c.porta,
+                limpo(&c.banco),
+                limpo(&c.usuario),
+                limpo(&c.caminho),
+                u8::from(c.tls)
+            )
+        })
+        .collect();
+    if let Some(pasta) = arquivo.parent() {
+        std::fs::create_dir_all(pasta).map_err(|e| e.to_string())?;
+    }
+    let tmp: PathBuf = arquivo.with_extension("tmp");
+    std::fs::write(&tmp, texto).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, arquivo).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    #[test]
+    fn divide_respeitando_aspas_e_comentarios() {
+        let sql = "select 'a;b';\n-- nada; aqui\nselect 2 /* ; */;\n\n";
+        assert_eq!(dividir(sql), vec!["select 'a;b'", "-- nada; aqui\nselect 2 /* ; */"]);
+    }
+
+    #[test]
+    fn comando_do_cursor() {
+        let sql = "select 1;\nselect 2;\nselect 3";
+        assert_eq!(comando_no_cursor(sql, 0, 3), "select 1");
+        assert_eq!(comando_no_cursor(sql, 1, 0), "select 2");
+        assert_eq!(comando_no_cursor(sql, 2, 8), "select 3");
+        // Logo depois do último `;`, sem nada a seguir: o comando anterior.
+        assert_eq!(comando_no_cursor("select 1;\n", 1, 0), "select 1");
+    }
+
+    #[test]
+    fn conexoes_ida_e_volta_sem_senha() {
+        let p = std::env::temp_dir().join(format!("featherdb-conexoes-{}.txt", std::process::id()));
+        let mut c = Conexao::nova(Tipo::Postgres);
+        c.nome = "Produção\tnova".into();
+        c.banco = "vendas".into();
+        c.tls = true;
+        let d = Conexao { caminho: "Driver={HDBODBC};ServerNode=x:443".into(), ..Conexao::nova(Tipo::Odbc) };
+        gravar_conexoes(&p, &[c.clone(), d.clone()]).unwrap();
+        let lidas = ler_conexoes(&p);
+        std::fs::remove_file(&p).unwrap();
+        c.nome = "Produção nova".into();
+        assert_eq!(lidas, vec![c, d]);
+    }
+
+    #[test]
+    fn identificadores_com_aspas_so_quando_precisa() {
+        assert_eq!(identificador("clientes", Tipo::Postgres), "clientes");
+        assert_eq!(identificador("Clientes", Tipo::Postgres), "\"Clientes\"");
+        assert_eq!(identificador("a`b", Tipo::MySql), "`a``b`");
+    }
+
+    #[test]
+    fn sqlite_de_ponta_a_ponta() {
+        let p = std::env::temp_dir().join(format!("featherdb-teste-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        let c = Conexao { caminho: p.to_string_lossy().into_owned(), ..Conexao::nova(Tipo::Sqlite) };
+        let mut b = c.conectar("").unwrap();
+        b.executar("create table pessoas (id integer primary key, nome text, nota real)", 10).unwrap();
+        let r = b.executar("insert into pessoas (nome, nota) values ('Ana', 9.5), (null, 7)", 10).unwrap();
+        assert_eq!(r.afetadas, Some(2));
+        let r = b.executar("select id, nome, nota from pessoas order by id", 1).unwrap();
+        assert_eq!(r.colunas, ["id", "nome", "nota"]);
+        assert_eq!(r.linhas, vec![vec![Some("1".into()), Some("Ana".into()), Some("9.5".into())]]);
+        assert!(r.cortado);
+        let t = b.tabelas().unwrap();
+        assert_eq!(t, vec![Tabela { esquema: String::new(), nome: "pessoas".into(), visao: false }]);
+        assert_eq!(b.colunas(&t[0]).unwrap()[1], ("nome".into(), "TEXT".into()));
+        assert!(b.executar("select * from nao_existe", 10).is_err());
+        drop(b);
+        std::fs::remove_file(&p).unwrap();
+    }
+}

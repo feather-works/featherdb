@@ -1,0 +1,128 @@
+//! O conteúdo da Ajuda (F1), nos três idiomas. A janela e a busca são da `feather_ui::ajuda`.
+//! Os ids evitam os da planilha (`comecar`, `formatar`…): a página inicial da feather-ui liga
+//! atalhos de planilha a eles.
+use std::sync::OnceLock;
+
+use feather_ui::ajuda::{Catalogo, Linha, Secao, Topico};
+
+use crate::idioma::tr;
+
+/// Seção que a regra de boas-vindas abre na primeira vez.
+pub(crate) const PRIMEIROS_PASSOS: &str = "primeiros-passos";
+
+fn t(s: &str) -> Linha {
+    Linha::Texto(tr(s).into())
+}
+fn m(s: &str) -> Linha {
+    Linha::Marcador(tr(s).into())
+}
+fn a(descricao: &str, tecla: &str) -> Linha {
+    Linha::Atalho { descricao: tr(descricao).into(), tecla: tecla.into() }
+}
+fn topico(id: &str, titulo: &str, linhas: Vec<Linha>) -> Topico {
+    Topico { id: id.into(), titulo: tr(titulo).into(), linhas }
+}
+fn secao(id: &str, titulo: &str, introducao: &str, topicos: Vec<Topico>) -> Secao {
+    Secao { id: id.into(), titulo: tr(titulo).into(), introducao: tr(introducao).into(), topicos }
+}
+
+/// O catálogo no idioma atual (montado uma vez por idioma).
+pub(crate) fn catalogo() -> &'static Catalogo {
+    static CATALOGOS: [OnceLock<Catalogo>; 3] = [OnceLock::new(), OnceLock::new(), OnceLock::new()];
+    CATALOGOS[crate::idioma::indice().min(2)].get_or_init(montar)
+}
+
+fn montar() -> Catalogo {
+    Catalogo {
+        titulo: tr("Ajuda do FeatherDB").into(),
+        busca_rotulo: tr("Buscar na ajuda").into(),
+        nada_encontrado: tr("Nada encontrado. Tente outra palavra.").into(),
+        anterior: tr("Anterior").into(),
+        proximo: tr("Próximo").into(),
+        nesta_secao: tr("Nesta seção").into(),
+        secoes: vec![
+            secao(
+                PRIMEIROS_PASSOS,
+                "Primeiros passos",
+                "O FeatherDB conversa com bancos de dados: você escreve SQL e vê o resultado numa grade. Leve, sem conta e sem telemetria.",
+                vec![
+                    topico("primeira-conexao", "Sua primeira conexão", vec![
+                        t("Clique em Nova conexão (o + no alto), escolha o banco e preencha o servidor, o banco e o usuário."),
+                        t("Testar confere sem salvar. Salvar e conectar guarda a conexão na lista à esquerda."),
+                        t("A senha nunca vai para o disco: o FeatherDB pede uma vez e lembra só até você fechar o programa."),
+                    ]),
+                    topico("primeira-consulta", "Sua primeira consulta", vec![
+                        t("Escreva o SQL no editor e aperte Ctrl+Enter: roda o comando onde está o cursor (entre os ponto e vírgula)."),
+                        t("Com um trecho selecionado, roda só o trecho. Para rodar o script inteiro, Alt+X ou F5."),
+                        a("Rodar o comando do cursor", "Ctrl+Enter"),
+                        a("Rodar o script inteiro", "Alt+X"),
+                    ]),
+                ],
+            ),
+            secao("bancos", "Bancos de dados", "PostgreSQL, MySQL e SQLite vêm prontos. Os outros entram por ODBC.", vec![
+                topico("postgres-mysql", "PostgreSQL, MySQL e MariaDB", vec![
+                    t("Preencha servidor, porta, banco e usuário. Bancos na nuvem quase sempre exigem a opção de conexão criptografada (TLS)."),
+                ]),
+                topico("sqlite", "SQLite", vec![
+                    t("Escolha o arquivo do banco. Se ele não existir, o FeatherDB cria um banco novo e vazio."),
+                ]),
+                topico("odbc", "Datasphere, TDV e outros (ODBC)", vec![
+                    t("Para bancos que não vêm prontos, instale o driver ODBC do fornecedor e escreva a string de conexão. É o mesmo papel do driver JDBC do DBeaver, sem precisar de Java."),
+                    m("SAP Datasphere e HANA: driver HDBODBC (SAP HANA Client)."),
+                    m("TIBCO Data Virtualization (TDV): o driver ODBC do TDV."),
+                    m("SQL Server, Oracle, Snowflake, Db2: o driver ODBC de cada um."),
+                    t("No Linux, o gerenciador ODBC é o pacote unixodbc. No Windows ele já vem com o sistema."),
+                ]),
+            ]),
+            secao("navegar", "Tabelas e resultados", "A árvore à esquerda mostra o que existe no banco.", vec![
+                topico("arvore", "A árvore de tabelas", vec![
+                    t("Clique numa conexão para conectar e abrir as tabelas. Clique numa tabela para ver as colunas e o tipo de cada uma."),
+                    t("Clique duplo numa tabela mostra os dados dela na grade."),
+                    t("Criou uma tabela? O botão Atualizar tabelas lê a lista de novo."),
+                ]),
+                topico("grade", "A grade do resultado", vec![
+                    t("A grade traz até mil linhas, em páginas de duzentas. Para ver outras, use WHERE, ORDER BY ou LIMIT."),
+                    t("Copiar tudo põe o resultado na área de transferência, pronto para colar no FeatherSheet ou no Excel. Exportar CSV grava um arquivo."),
+                ]),
+                topico("rascunho", "Seu SQL fica guardado", vec![
+                    t("O texto do editor é guardado ao rodar e ao fechar, e volta na próxima vez que você abrir o FeatherDB."),
+                ]),
+            ]),
+        ],
+    }
+}
+
+#[cfg(test)]
+mod testes {
+    #[test]
+    fn primeira_secao_e_os_primeiros_passos_e_os_ids_nao_repetem() {
+        let c = super::catalogo();
+        assert_eq!(c.secoes[0].id, super::PRIMEIROS_PASSOS);
+        let mut ids: Vec<&str> = c.secoes.iter().flat_map(|s| s.topicos.iter().map(|t| t.id.as_str())).collect();
+        let total = ids.len();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), total);
+    }
+
+    #[test]
+    fn todo_texto_da_ajuda_tem_traducao() {
+        use feather_ui::ajuda::Linha;
+        let c = super::montar();
+        let mut textos = vec![c.titulo, c.busca_rotulo, c.nada_encontrado, c.anterior, c.proximo, c.nesta_secao];
+        for s in c.secoes {
+            textos.push(s.titulo);
+            textos.push(s.introducao);
+            for t in s.topicos {
+                textos.push(t.titulo);
+                for l in t.linhas {
+                    match l {
+                        Linha::Texto(x) | Linha::Marcador(x) | Linha::Exemplo(x) | Linha::Atalho { descricao: x, .. } => textos.push(x),
+                    }
+                }
+            }
+        }
+        let faltam: Vec<_> = textos.iter().filter(|t| !crate::idioma::sem_traducao(t).is_empty()).collect();
+        assert!(faltam.is_empty(), "sem tradução: {faltam:#?}");
+    }
+}
