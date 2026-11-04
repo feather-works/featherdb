@@ -90,11 +90,16 @@ fn montar() -> Catalogo {
                     t("Clique duplo numa tabela mostra os dados dela na grade."),
                     t("Botão direito numa tabela: ver os dados, escrever o SELECT com as colunas no editor, contar as linhas ou copiar o nome. Na conexão: conectar, editar e excluir."),
                     t("Criou uma tabela? O botão Atualizar tabelas lê a lista de novo."),
-                    t("Muitas tabelas? Escreva parte do nome em Filtrar tabelas, no alto da árvore."),
+                    t("Muitas tabelas? Escreva parte do nome em Buscar tabela ou coluna, no alto da árvore."),
                 ]),
                 topico("grade", "A grade do resultado", vec![
-                    t("A grade traz até mil linhas, em páginas de duzentas. Para ver outras, use WHERE, ORDER BY ou LIMIT."),
+                    t("A grade traz até mil linhas e rola leve, porque só desenha o que aparece na tela. Para ver outras, use WHERE, ORDER BY ou LIMIT."),
                     t("Copiar tudo põe o resultado na área de transferência, pronto para colar no FeatherSheet ou no Excel. Exportar CSV grava um arquivo."),
+                ]),
+                topico("estrutura", "Estrutura das tabelas", vec![
+                    t("A aba Estrutura mostra cada coluna com o tipo, se aceita vazio, o valor padrão e a chave. O lápis edita a coluna e mostra o SQL antes de aplicar."),
+                    t("A busca da lateral acha tabelas e colunas pelo nome, em todos os bancos abertos; clicar numa coluna abre a estrutura da tabela dela."),
+                    t("Para ter a lista de colunas fora do FeatherDB: copie ou exporte as colunas de uma tabela, ou exporte o dicionário do banco inteiro (botão direito no banco ou na conexão)."),
                 ]),
                 topico("rascunho", "Seu SQL fica guardado", vec![
                     t("O texto do editor é guardado ao rodar e ao fechar, e volta na próxima vez que você abrir o FeatherDB."),

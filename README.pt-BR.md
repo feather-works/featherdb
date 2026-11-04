@@ -21,7 +21,10 @@ A ideia do DBeaver, sem o peso: abre na hora e usa cerca de 100 MB de memória.
 - **Árvore de tabelas:** sem banco escolhido, lista os bancos do servidor (como o DBeaver); tabelas, visões e colunas com o tipo; clique duplo numa tabela mostra os dados;
   o botão direito tem SELECT, COUNT, copiar o nome, editar e excluir.
   Um filtro acha a tabela em bancos com milhares delas.
-- **Resultado:** até 1.000 linhas, em páginas de 200; copiar tudo para colar no FeatherSheet ou no
+- **Visão da tabela:** abas Dados e Estrutura; cada coluna mostra o tipo (com ícone por família), se aceita
+  vazio, o padrão e a chave. Editar ou criar coluna mostrando o SQL antes de rodar. Busca de tabelas e colunas
+  pelo nome nos bancos abertos; exportar as colunas de uma tabela ou o dicionário do banco inteiro.
+- **Resultado:** até 1.000 linhas que rolam leve (só o que aparece na tela é desenhado); copiar tudo para colar no FeatherSheet ou no
   Excel, ou exportar CSV.
 - **Privado:** sem conta, sem telemetria. A senha só vai para o cofre de senhas do sistema (GNOME Keyring/KWallet,
   Gerenciador de Credenciais do Windows), nunca para um arquivo; as conexões ficam em `~/.config/featherdb/conexoes.txt` e o texto do editor em `rascunho.sql`.

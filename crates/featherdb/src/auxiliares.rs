@@ -59,6 +59,9 @@ pub(crate) static VERSOES: [novidades::Versao; 1] = [novidades::Versao {
         "Menu do botão direito nas tabelas e nas conexões (SELECT, COUNT, editar).",
         "Sem banco escolhido, a árvore lista os bancos do servidor (Postgres e MySQL).",
         "MongoDB e Atlas: coleções na árvore, find, aggregate e countDocuments no editor.",
+        "Estrutura da tabela com o tipo de cada coluna; editar e criar coluna mostrando o SQL antes.",
+        "Busca de colunas em todos os bancos abertos e exportação do dicionário do banco.",
+        "A grade monta só o que aparece na tela: rolar mil linhas é leve.",
         "Cole o endereço postgresql:// ou mysql:// e a conexão se preenche sozinha.",
     ],
 }];

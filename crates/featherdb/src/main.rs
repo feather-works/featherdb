@@ -3,6 +3,7 @@
 mod ajuda;
 mod auxiliares;
 mod config;
+mod estrutura_ui;
 mod formulario;
 mod grade;
 mod idioma;
@@ -14,7 +15,7 @@ use std::time::{Duration, Instant};
 use feather_ui::cromo::{self, AcoesJanela};
 
 use feather_ui::tema::*;
-use featherdb_core::{Banco, Conexao, Resultado, Tabela, Tipo, LIMITE_LINHAS};
+use featherdb_core::{Banco, CampoDe, Coluna, Conexao, Resultado, Tabela, Tipo, LIMITE_LINHAS};
 use pelicano::{
     button, column, container, horizontal_space, mouse_area, row, svg, text, text_editor, tooltip, Align, Border, Content,
     Element, Event, Font, Key, Length, Modifiers, NamedKey, ResizeDirection, Settings, Space, Style, Svg, SvgView, Task, Theme,
@@ -22,6 +23,7 @@ use pelicano::{
 };
 
 use auxiliares::{Aux, Janela};
+use estrutura_ui::{Aba, CampoColuna, EdicaoColuna};
 use formulario::{Campo, Formulario};
 use idioma::{tr, trf};
 
@@ -42,9 +44,12 @@ struct Base {
     conectando: bool,
     expandido: bool,
     tabelas: Vec<Tabela>,
-    /// Colunas das tabelas abertas na árvore, pelo nome qualificado.
-    colunas: HashMap<String, Vec<(String, String)>>,
+    /// Colunas das tabelas já lidas, pelo nome qualificado.
+    colunas: HashMap<String, Vec<Coluna>>,
     tabelas_abertas: HashSet<String>,
+    /// Todas as colunas do banco, para a busca e para exportar (lido na primeira busca).
+    dicionario: Option<Vec<CampoDe>>,
+    lendo_dicionario: bool,
 }
 
 /// Uma conexão da lista, com o que está aberto dela nesta sessão.
@@ -64,6 +69,7 @@ struct Item {
 #[derive(Clone)]
 enum Menu {
     Conexao(u64),
+    Banco(u64, String),
     Tabela(Alvo, Tabela),
 }
 
@@ -92,7 +98,17 @@ enum Msg {
     Atualizar(Alvo),
     Tabelas(Alvo, Result<Vec<Tabela>, String>),
     ExpandirTabela(Alvo, Tabela),
-    Colunas(Alvo, String, Result<Vec<(String, String)>, String>),
+    /// O último campo diz se é para exportar depois de ler.
+    Colunas(Alvo, String, Result<Vec<Coluna>, String>, bool),
+    VerEstrutura(Alvo, Tabela),
+    Aba(Aba),
+    EditarColuna(Option<Coluna>),
+    Edicao(CampoColuna),
+    CopiarColunas,
+    ExportarColunas,
+    ExportarColunasDe(Alvo, Tabela),
+    ExportarDicionario(Alvo),
+    Dicionario(Alvo, Result<Vec<CampoDe>, String>, bool),
     AbrirTabela(Alvo, Tabela),
     // Menu do botão direito
     AbrirMenu(Menu, pelicano::Point),
@@ -108,7 +124,7 @@ enum Msg {
     Executar,
     ExecutarTudo,
     Executado(Result<Resultado, String>, Duration),
-    Pagina(isize),
+    Rolou(f32, f32, f32, f32),
     Copiar,
     ExportarCsv,
     Exportado(Option<Result<std::path::PathBuf, String>>),
@@ -123,7 +139,17 @@ struct App {
     erro: Option<String>,
     executando: bool,
     tempo: Option<Duration>,
-    pagina: usize,
+    /// Posição e tamanho da rolagem da grade (ela monta só o que aparece).
+    rolagem: (f32, f32),
+    vista: (f32, f32),
+    /// Sobe a cada resultado novo: a rolagem da grade volta ao começo.
+    versao_resultado: u64,
+    /// A tabela aberta no painel de baixo (abas Dados e Estrutura).
+    tabela_aberta: Option<(Alvo, Tabela)>,
+    aba: Aba,
+    edicao: Option<EdicaoColuna>,
+    /// Depois de um ALTER TABLE: ler de novo as colunas desta tabela.
+    recarregar: Option<(Alvo, Tabela)>,
     aviso: String,
     form: Option<Formulario>,
     /// Pedindo a senha para conectar: a conexão e o que já foi digitado.
@@ -197,7 +223,13 @@ impl App {
             erro: None,
             executando: false,
             tempo: None,
-            pagina: 0,
+            rolagem: (0.0, 0.0),
+            vista: (900.0, 400.0),
+            versao_resultado: 0,
+            tabela_aberta: None,
+            aba: Aba::Dados,
+            edicao: None,
+            recarregar: None,
             aviso: String::new(),
             form: None,
             pedir_senha: None,
@@ -415,7 +447,13 @@ impl pelicano::App for App {
                 }
                 self.excluir = None;
             }
-            Msg::Filtro(f) => self.filtro = f,
+            Msg::Filtro(f) => {
+                self.filtro = f;
+                // A busca também acha colunas: lê o dicionário dos bancos abertos na primeira vez.
+                if self.filtro.trim().chars().count() >= 2 {
+                    return self.carregar_dicionarios();
+                }
+            }
             Msg::Form(campo) => return self.update_form(campo),
             Msg::Senha(s) => {
                 if let Some((_, senha)) = &mut self.pedir_senha {
@@ -527,6 +565,7 @@ impl pelicano::App for App {
                 if let Some(b) = self.base_mut(&alvo) {
                     b.colunas.clear();
                     b.tabelas_abertas.clear();
+                    b.dicionario = None;
                 }
                 return self.carregar_tabelas(alvo);
             }
@@ -545,33 +584,102 @@ impl pelicano::App for App {
                 if !b.tabelas_abertas.remove(&chave) {
                     b.tabelas_abertas.insert(chave.clone());
                     if !b.colunas.contains_key(&chave) {
-                        if let Some(banco) = b.banco.clone() {
-                            return em_segundo_plano(
-                                move || banco.lock().map_err(|_| tr("A conexão travou; desconecte e conecte de novo.").to_owned())?.colunas(&t),
-                                move |r| Msg::Colunas(alvo, chave, r),
-                            );
-                        }
+                        return self.carregar_colunas(alvo, t, false);
                     }
                 }
             }
-            Msg::Colunas(alvo, chave, r) => match r {
+            Msg::Colunas(alvo, chave, r, exportar) => match r {
                 Ok(c) => {
+                    let texto = exportar.then(|| featherdb_core::estrutura::colunas_em_texto(&c, ','));
                     if let Some(b) = self.base_mut(&alvo) {
-                        b.colunas.insert(chave, c);
+                        b.colunas.insert(chave.clone(), c);
+                    }
+                    if let Some(texto) = texto {
+                        return App::salvar_texto(format!("{}-colunas.csv", chave.replace(['"', '`'], "")), texto);
                     }
                 }
                 Err(e) => self.erro = Some(e),
             },
+            Msg::VerEstrutura(alvo, t) => {
+                self.ativa = Some(alvo.clone());
+                self.tabela_aberta = Some((alvo.clone(), t.clone()));
+                self.aba = Aba::Estrutura;
+                let tipo = self.tipo(alvo.0);
+                if !self.base(&alvo).is_some_and(|b| b.colunas.contains_key(&t.qualificado(tipo))) {
+                    return self.carregar_colunas(alvo, t, false);
+                }
+            }
+            Msg::Aba(a) => self.aba = a,
+            Msg::EditarColuna(c) => self.abrir_edicao(c),
+            Msg::Edicao(c) => return self.update_edicao(c),
+            Msg::CopiarColunas | Msg::ExportarColunas => {
+                let Some((alvo, t)) = &self.tabela_aberta else { return Task::none() };
+                let chave = t.qualificado(self.tipo(alvo.0));
+                let Some(cols) = self.base(alvo).and_then(|b| b.colunas.get(&chave)) else { return Task::none() };
+                if matches!(msg, Msg::ExportarColunas) {
+                    let texto = featherdb_core::estrutura::colunas_em_texto(cols, ',');
+                    return App::salvar_texto(format!("{}-colunas.csv", t.nome), texto);
+                }
+                let texto = featherdb_core::estrutura::colunas_em_texto(cols, '\t');
+                self.aviso = match arboard::Clipboard::new().and_then(|mut c| c.set_text(texto)) {
+                    Ok(()) => trf("{} colunas copiadas (cole na planilha).", &[&cols.len()]),
+                    Err(e) => trf("Não foi possível copiar: {}", &[&e]),
+                };
+            }
+            Msg::ExportarColunasDe(alvo, t) => {
+                let chave = t.qualificado(self.tipo(alvo.0));
+                match self.base(&alvo).and_then(|b| b.colunas.get(&chave)) {
+                    Some(cols) => return App::salvar_texto(format!("{}-colunas.csv", t.nome), featherdb_core::estrutura::colunas_em_texto(cols, ',')),
+                    None => return self.carregar_colunas(alvo, t, true),
+                }
+            }
+            Msg::ExportarDicionario(alvo) => {
+                let nome = alvo.1.clone().or_else(|| self.itens.iter().find(|i| i.id == alvo.0).map(|i| i.conexao.rotulo())).unwrap_or_default();
+                if let Some(d) = self.base(&alvo).and_then(|b| b.dicionario.as_ref()) {
+                    return App::salvar_texto(format!("{nome}-dicionario.csv"), featherdb_core::estrutura::dicionario_em_texto(d, ','));
+                }
+                if let Some(b) = self.base_mut(&alvo) {
+                    b.lendo_dicionario = true;
+                }
+                return self.ler_dicionario(alvo, true);
+            }
+            Msg::Dicionario(alvo, r, exportar) => {
+                let nome = alvo.1.clone().or_else(|| self.itens.iter().find(|i| i.id == alvo.0).map(|i| i.conexao.rotulo())).unwrap_or_default();
+                let Some(b) = self.base_mut(&alvo) else { return Task::none() };
+                b.lendo_dicionario = false;
+                match r {
+                    Ok(d) => {
+                        let texto = exportar.then(|| featherdb_core::estrutura::dicionario_em_texto(&d, ','));
+                        b.dicionario = Some(d);
+                        if let Some(texto) = texto {
+                            return App::salvar_texto(format!("{nome}-dicionario.csv"), texto);
+                        }
+                    }
+                    Err(e) => {
+                        b.dicionario = Some(Vec::new());
+                        self.erro = Some(trf("Não foi possível ler as colunas do banco: {}", &[&e]));
+                    }
+                }
+            }
+            Msg::Rolou(x, y, w, h) => {
+                self.rolagem = (x, y);
+                self.vista = (w, h);
+            }
             Msg::AbrirTabela(alvo, t) => {
                 let tipo = self.tipo(alvo.0);
-                self.ativa = Some(alvo);
+                self.ativa = Some(alvo.clone());
+                self.tabela_aberta = Some((alvo.clone(), t.clone()));
+                self.aba = Aba::Dados;
+                // As colunas também, para a aba Estrutura já estar pronta.
+                let colunas = if self.base(&alvo).is_some_and(|b| b.colunas.contains_key(&t.qualificado(tipo))) { Task::none() } else { self.carregar_colunas(alvo, t.clone(), false) };
                 // Com LIMIT o banco não manda a tabela inteira (o ODBC fica sem: cada banco escreve de um jeito).
                 let sql = match tipo {
                     Tipo::MongoDb => format!("db.getCollection({:?}).find({{}}).limit({LIMITE_LINHAS})", t.nome),
                     Tipo::Odbc => format!("SELECT * FROM {}", t.qualificado(tipo)),
                     _ => format!("SELECT * FROM {} LIMIT {LIMITE_LINHAS}", t.qualificado(tipo)),
                 };
-                return self.rodar(vec![sql]);
+                let rodar = self.rodar(vec![sql]);
+                return Task::batch([rodar, colunas]);
             }
             Msg::AbrirMenu(m, p) => self.menu = Some((m, p)),
             Msg::FecharMenu => self.menu = None,
@@ -584,7 +692,7 @@ impl pelicano::App for App {
                 let tipo = self.tipo(alvo.0);
                 let Some(b) = self.base(&alvo) else { return Task::none() };
                 let colunas = b.colunas.get(&t.qualificado(tipo)).filter(|c| !c.is_empty()).map_or("*".to_owned(), |c| {
-                    c.iter().map(|(n, _)| featherdb_core::identificador(n, tipo)).collect::<Vec<_>>().join(", ")
+                    c.iter().map(|c| featherdb_core::identificador(&c.nome, tipo)).collect::<Vec<_>>().join(", ")
                 });
                 self.ativa = Some(alvo);
                 let texto = if tipo == Tipo::MongoDb {
@@ -612,26 +720,45 @@ impl pelicano::App for App {
             }
             Msg::TamanhoJanela(t) => self.tamanho = t,
             Msg::Executar => {
+                self.tabela_aberta = None;
+                self.aba = Aba::Dados;
                 // Cada comando vai sozinho: nem todo driver ODBC aceita vários de uma vez.
                 return self.rodar(featherdb_core::dividir(&self.comando_atual()));
             }
             Msg::EditorMudou => self.gravar_rascunho(),
-            Msg::ExecutarTudo => return self.rodar(featherdb_core::dividir(&self.editor.text())),
+            Msg::ExecutarTudo => {
+                self.tabela_aberta = None;
+                self.aba = Aba::Dados;
+                return self.rodar(featherdb_core::dividir(&self.editor.text()));
+            }
             Msg::Executado(r, t) => {
                 self.executando = false;
                 self.tempo = Some(t);
-                self.pagina = 0;
+                self.versao_resultado += 1;
+                self.rolagem = (0.0, 0.0);
                 match r {
                     Ok(r) => {
-                        self.resultado = Some(r);
                         self.erro = None;
+                        // Foi um ALTER TABLE da aba Estrutura: lê a tabela de novo e volta para a estrutura.
+                        if let Some((alvo, t)) = self.recarregar.take() {
+                            let chave = t.qualificado(self.tipo(alvo.0));
+                            if let Some(b) = self.base_mut(&alvo) {
+                                b.colunas.remove(&chave);
+                                b.dicionario = None;
+                            }
+                            self.tabela_aberta = Some((alvo.clone(), t.clone()));
+                            self.aba = Aba::Estrutura;
+                            self.aviso = tr("Coluna alterada.").to_owned();
+                            return self.carregar_colunas(alvo, t, false);
+                        }
+                        self.resultado = Some(r);
                     }
-                    Err(e) => self.erro = Some(e),
+                    Err(e) => {
+                        self.recarregar = None;
+                        self.aba = Aba::Dados;
+                        self.erro = Some(e);
+                    }
                 }
-            }
-            Msg::Pagina(d) => {
-                let total = self.resultado.as_ref().map_or(0, |r| grade::paginas(r.linhas.len()));
-                self.pagina = (self.pagina as isize + d).clamp(0, total.saturating_sub(1) as isize) as usize;
             }
             Msg::Copiar => {
                 if let Some(r) = &self.resultado {
@@ -685,6 +812,9 @@ impl pelicano::App for App {
         if self.menu.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::FecharMenu);
         }
+        if self.edicao.is_some() {
+            return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::Edicao(CampoColuna::Cancelar));
+        }
         if self.pedir_senha.is_some() || self.form.is_some() || self.excluir.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then(|| match () {
                 _ if self.pedir_senha.is_some() => Msg::ConfirmarSenha(false),
@@ -712,6 +842,9 @@ impl pelicano::App for App {
         let janela = cromo::moldura_redimensionavel_com(tudo.into(), self.maximizada, Msg::Puxar);
         if self.menu.is_some() {
             return self.view_menu(janela);
+        }
+        if self.edicao.is_some() {
+            return self.view_edicao(janela);
         }
         if let Some(f) = &self.form {
             return f.view().sobre(janela);
@@ -819,13 +952,14 @@ impl App {
             let botao = mouse_area(botao).on_double_click(Msg::AbrirTabela(alvo.clone(), t.clone())).on_right_press_at(move |p| Msg::AbrirMenu(Menu::Tabela(a2.clone(), tab.clone()), p));
             saida.push(tooltip(botao, tr("Clique duplo mostra os dados"), TooltipPosition::Right).padding([4, 8]).style(estilo_dica).into());
             if aberta {
-                for (nome, tipo_col) in base.colunas.get(&chave).map(Vec::as_slice).unwrap_or_default() {
+                for c in base.colunas.get(&chave).map(Vec::as_slice).unwrap_or_default() {
                     saida.push(
                         row![
-                            Space::new(recuo + 48.0, 0),
-                            text(nome.as_str()).size(12).no_wrap().ellipsis(),
+                            Space::new(recuo + 40.0, 0),
+                            grade::icone_tipo(&c.tipo, c.chave, 13.0),
+                            text(c.nome.as_str()).size(12).no_wrap().ellipsis(),
                             horizontal_space(),
-                            text(tipo_col.to_lowercase()).size(11).font(Font::MONO).color(COR_TEXTO_MUTED()).no_wrap(),
+                            text(c.tipo.to_lowercase()).size(11).font(Font::MONO).color(COR_TEXTO_MUTED()).no_wrap(),
                         ]
                         .spacing(6)
                         .align(Align::Center)
@@ -859,7 +993,9 @@ impl App {
         if base.is_some_and(|b| b.conectando) {
             linha = linha.push(text(tr("conectando…")).size(11).color(COR_TEXTO_MUTED()));
         }
-        button(linha).padding([4, 6]).width(Length::FILL).style(estilo_botao_pequeno(ativo)).on_press(Msg::ExpandirBanco(item.id, nome.to_owned())).into()
+        let (id, n) = (item.id, nome.to_owned());
+        let botao = button(linha).padding([4, 6]).width(Length::FILL).style(estilo_botao_pequeno(ativo)).on_press(Msg::ExpandirBanco(item.id, nome.to_owned()));
+        mouse_area(botao).on_right_press_at(move |p| Msg::AbrirMenu(Menu::Banco(id, n.clone()), p)).into()
     }
 
     /// A árvore: conexões › tabelas › colunas.
@@ -875,6 +1011,9 @@ impl App {
                 .spacing(10)
                 .padding([8, 10]),
             );
+        }
+        if let Some(achados) = self.resultados_busca() {
+            lista = lista.push(achados);
         }
         for item in &self.itens {
             lista = lista.push(self.linha_conexao(item));
@@ -917,7 +1056,7 @@ impl App {
             .padding(pelicano::Padding { top: 10.0, right: 8.0, bottom: 6.0, left: 14.0 });
         // O filtro só aparece quando há tabelas para filtrar.
         let filtro: Element<'_, Msg> = if self.itens.iter().any(|i| !i.principal.tabelas.is_empty() || i.bases.values().any(|b| !b.tabelas.is_empty())) {
-            container(pelicano::text_input(tr("Filtrar tabelas"), self.filtro.as_str()).on_input(Msg::Filtro).padding([6, 10]).size(12.5)).padding(pelicano::Padding { top: 0.0, right: 10.0, bottom: 8.0, left: 10.0 }).into()
+            container(pelicano::text_input(tr("Buscar tabela ou coluna"), self.filtro.as_str()).on_input(Msg::Filtro).padding([6, 10]).size(12.5)).padding(pelicano::Padding { top: 0.0, right: 10.0, bottom: 8.0, left: 10.0 }).into()
         } else {
             Space::new(0, 0).into()
         };
@@ -1015,7 +1154,60 @@ impl App {
         .into()
     }
 
+    /// O painel de baixo: o resultado da consulta, ou a tabela aberta com as abas Dados e Estrutura.
     fn view_resultado(&self) -> Element<'_, Msg> {
+        let Some((alvo, t)) = &self.tabela_aberta else {
+            let mut barra = row![text(tr("Resultado")).size(13).font(Font::SEMIBOLD)].spacing(8).align(Align::Center);
+            barra = self.chips_e_acoes(barra);
+            return column![barra.padding([6, 12]), divisoria(), self.corpo_dados()].into();
+        };
+        let tipo = self.tipo(alvo.0);
+        let mongo = tipo == Tipo::MongoDb;
+        let ncol = self.base(alvo).and_then(|b| b.colunas.get(&t.qualificado(tipo))).map(Vec::len);
+        let aba = |rotulo: &str, a: Aba| {
+            let ativa = self.aba == a;
+            button(text(rotulo.to_owned()).size(13).font(if ativa { Font::SEMIBOLD } else { Font::DEFAULT })).padding([5, 12]).style(estilo_botao_pequeno(ativa)).on_press(Msg::Aba(a))
+        };
+        let nome = if t.esquema.is_empty() { t.nome.clone() } else { format!("{}.{}", t.esquema, t.nome) };
+        let mut barra = row![
+            if t.visao { icone_tabler(VISAO, 16.0) } else { feather_ui::icones::icone_traco("table", 16.0) },
+            text(nome).size(13).font(Font::SEMIBOLD),
+            Space::new(8, 0),
+            aba(tr("Dados"), Aba::Dados),
+            aba(if mongo { tr("Campos") } else { tr("Estrutura") }, Aba::Estrutura),
+            Space::new(4, 0),
+        ]
+        .spacing(4)
+        .align(Align::Center);
+        let corpo = match self.aba {
+            Aba::Dados => {
+                barra = self.chips_e_acoes(barra);
+                self.corpo_dados()
+            }
+            Aba::Estrutura => {
+                let n = ncol.map(|n| if mongo { trf("{} campos", &[&n]) } else { trf("{} colunas", &[&n]) }).unwrap_or_default();
+                barra = barra.push(chip(n)).push(horizontal_space()).push(self.acoes_estrutura());
+                self.view_estrutura()
+            }
+        };
+        column![barra.padding([6, 12]), divisoria(), corpo].into()
+    }
+
+    /// Contagem, tempo, copiar e exportar do resultado (quando há linhas).
+    fn chips_e_acoes<'a>(&'a self, mut barra: pelicano::Row<'a, Msg>) -> pelicano::Row<'a, Msg> {
+        let Some(r) = self.resultado.as_ref().filter(|r| !r.colunas.is_empty() && !self.executando && self.erro.is_none()) else {
+            return barra.push(horizontal_space());
+        };
+        let contagem = if r.cortado { trf("Primeiras {} linhas", &[&r.linhas.len()]) } else { trf("{} linhas", &[&r.linhas.len()]) };
+        let tempo = self.tempo.map_or(String::new(), |t| trf("{} ms", &[&t.as_millis()]));
+        barra = barra.push(chip(contagem)).push(chip(tempo)).push(horizontal_space());
+        barra
+            .push(acao_pequena(feather_ui::icones::icone_traco("copy", 15.0), tr("Copiar tudo (cola na planilha)"), Some(Msg::Copiar)))
+            .push(acao_pequena(feather_ui::icones::icone_traco("file-export", 15.0), tr("Exportar CSV"), Some(Msg::ExportarCsv)))
+    }
+
+    /// O resultado: rodando, erro, vazio, contagem de linhas afetadas ou a grade.
+    fn corpo_dados(&self) -> Element<'_, Msg> {
         if self.executando {
             return vazio("clock", tr("Rodando…"), "");
         }
@@ -1031,21 +1223,7 @@ impl App {
             let n = r.afetadas.unwrap_or(0);
             return vazio("check", tr("Pronto"), &trf("{} linha(s) afetada(s).", &[&n]));
         }
-        let paginas = grade::paginas(r.linhas.len());
-        let contagem = if r.cortado { trf("Primeiras {} linhas", &[&r.linhas.len()]) } else { trf("{} linhas", &[&r.linhas.len()]) };
-        let tempo = self.tempo.map_or(String::new(), |t| trf("{} ms", &[&t.as_millis()]));
-        let mut barra = row![text(tr("Resultado")).size(13).font(Font::SEMIBOLD), chip(contagem), chip(tempo), horizontal_space()].spacing(8).align(Align::Center);
-        if paginas > 1 {
-            barra = barra.push(acao_pequena(feather_ui::icones::icone_traco("arrow-left", 15.0), tr("Página anterior"), (self.pagina > 0).then_some(Msg::Pagina(-1))));
-            barra = barra.push(text(trf("{} de {}", &[&(self.pagina + 1), &paginas])).size(12).color(COR_TEXTO_MUTED()));
-            barra = barra.push(acao_pequena(feather_ui::icones::icone_traco("arrow-right", 15.0), tr("Próxima página"), (self.pagina + 1 < paginas).then_some(Msg::Pagina(1))));
-            barra = barra.push(Space::new(6, 0));
-        }
-        let barra = barra
-            .push(acao_pequena(feather_ui::icones::icone_traco("copy", 15.0), tr("Copiar tudo (cola na planilha)"), Some(Msg::Copiar)))
-            .push(acao_pequena(feather_ui::icones::icone_traco("file-export", 15.0), tr("Exportar CSV"), Some(Msg::ExportarCsv)))
-            .padding([6, 12]);
-        column![barra, divisoria(), grade::view(r, self.pagina)].into()
+        grade::view(r, self.rolagem, self.vista, self.versao_resultado)
     }
 
     fn rodape(&self) -> Element<'_, Msg> {
@@ -1078,9 +1256,17 @@ impl App {
                 lista = lista
                     .push(if ligada { item(icone_tabler(DESCONECTAR, 16.0), tr("Desconectar"), Some(Msg::Desconectar(id))) } else { item(traco("player-play"), tr("Conectar"), Some(Msg::Conectar(id))) })
                     .push(item(traco("refresh"), tr("Atualizar tabelas"), ligada.then_some(Msg::Atualizar((id, None)))))
+                    .push(item(traco("file-export"), tr("Exportar o dicionário do banco (CSV)"), (ligada && !i.servidor()).then_some(Msg::ExportarDicionario((id, None)))))
                     .push(separador())
                     .push(item(traco("pencil"), tr("Editar conexão"), Some(Msg::Editar(id))))
                     .push(item(traco("trash"), tr("Excluir conexão"), Some(Msg::Excluir(id))));
+            }
+            Menu::Banco(id, nome) => {
+                let alvo = (*id, Some(nome.clone()));
+                let aberto = self.base(&alvo).is_some_and(|b| b.banco.is_some());
+                lista = lista
+                    .push(item(traco("refresh"), tr("Atualizar tabelas"), aberto.then_some(Msg::Atualizar(alvo.clone()))))
+                    .push(item(traco("file-export"), tr("Exportar o dicionário do banco (CSV)"), aberto.then_some(Msg::ExportarDicionario(alvo))));
             }
             Menu::Tabela(alvo, t) => {
                 let (id, tipo) = (alvo.clone(), self.tipo(alvo.0));
@@ -1088,6 +1274,7 @@ impl App {
                 let mongo = tipo == Tipo::MongoDb;
                 lista = lista
                     .push(item(traco("player-play"), if mongo { tr("Ver os documentos (find)") } else { tr("Ver os dados (SELECT *)") }, Some(Msg::AbrirTabela(id.clone(), t.clone()))))
+                    .push(item(traco("columns"), if mongo { tr("Ver os campos") } else { tr("Ver a estrutura") }, Some(Msg::VerEstrutura(id.clone(), t.clone()))))
                     .push(item(traco("pencil"), if mongo { tr("Escrever o find no editor") } else { tr("Escrever o SELECT no editor") }, Some(Msg::EscreverSelect(id.clone(), t.clone()))))
                     .push(item(traco("math-function"), if mongo { tr("Contar os documentos") } else { tr("Contar as linhas (COUNT)") }, Some(Msg::Contar(id.clone(), t.clone()))))
                     .push(separador())
@@ -1101,11 +1288,12 @@ impl App {
                         },
                         Some(Msg::ExpandirTabela(id.clone(), t.clone())),
                     ))
-                    .push(item(traco("copy"), tr("Copiar o nome"), Some(Msg::CopiarTexto(t.qualificado(tipo)))));
+                    .push(item(traco("copy"), tr("Copiar o nome"), Some(Msg::CopiarTexto(t.qualificado(tipo)))))
+                    .push(item(traco("file-export"), if mongo { tr("Exportar os campos (CSV)") } else { tr("Exportar as colunas (CSV)") }, Some(Msg::ExportarColunasDe(id.clone(), t.clone()))));
             }
         }
         const LARGURA: f32 = 270.0;
-        const ALTURA: f32 = 230.0;
+        const ALTURA: f32 = 300.0;
         let painel = container(lista).width(LARGURA).padding(5).style(|_| {
             Style::default()
                 .background(COR_PAINEL())

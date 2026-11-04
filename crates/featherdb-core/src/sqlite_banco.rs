@@ -39,7 +39,8 @@ impl Banco for Lite {
             let n = st.execute([]).map_err(erro)?;
             return Ok(Resultado { afetadas: Some(n as u64), ..Resultado::default() });
         }
-        let mut r = Resultado { colunas, ..Resultado::default() };
+        let tipos = st.columns().iter().map(|c| c.decl_type().unwrap_or("").to_owned()).collect();
+        let mut r = Resultado { colunas, tipos, ..Resultado::default() };
         let mut linhas = st.query([]).map_err(erro)?;
         while let Some(l) = linhas.next().map_err(erro)? {
             if r.linhas.len() >= limite {
@@ -59,9 +60,13 @@ impl Banco for Lite {
             .collect())
     }
 
-    fn colunas(&mut self, t: &Tabela) -> Result<Vec<(String, String)>, String> {
-        let mut st = self.0.prepare("SELECT name, type FROM pragma_table_info(?1)").map_err(|e| e.to_string())?;
-        let linhas = st.query_map([&t.nome], |l| Ok((l.get(0)?, l.get(1)?))).map_err(|e| e.to_string())?;
+    fn colunas(&mut self, t: &Tabela) -> Result<Vec<crate::Coluna>, String> {
+        let mut st = self.0.prepare("SELECT name, type, \"notnull\", dflt_value, pk FROM pragma_table_info(?1)").map_err(|e| e.to_string())?;
+        let linhas = st
+            .query_map([&t.nome], |l| {
+                Ok(crate::Coluna { nome: l.get(0)?, tipo: l.get(1)?, nulo: l.get::<_, i64>(2)? == 0, padrao: l.get(3)?, chave: l.get::<_, i64>(4)? > 0 })
+            })
+            .map_err(|e| e.to_string())?;
         linhas.collect::<Result<_, _>>().map_err(|e| e.to_string())
     }
 }

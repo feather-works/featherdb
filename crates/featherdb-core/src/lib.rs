@@ -1,6 +1,8 @@
 //! O motor do FeatherDB: as conexões guardadas, os drivers (Postgres, MySQL, SQLite e ODBC),
 //! as consultas e o catálogo (tabelas e colunas). Nada de interface aqui.
 pub mod cofre;
+pub mod estrutura;
+pub use estrutura::{CampoDe, Coluna};
 mod mongo_banco;
 mod mysql_banco;
 mod odbc;
@@ -172,6 +174,8 @@ pub struct Resultado {
     pub afetadas: Option<u64>,
     /// Havia mais que [`LIMITE_LINHAS`] linhas.
     pub cortado: bool,
+    /// O tipo de cada coluna, quando o banco diz (vazio quando não diz).
+    pub tipos: Vec<String>,
 }
 
 /// Uma tabela ou visão do catálogo.
@@ -239,15 +243,19 @@ pub trait Banco: Send {
         Ok(Vec::new())
     }
 
-    /// Nome e tipo de cada coluna, na ordem da tabela.
-    fn colunas(&mut self, t: &Tabela) -> Result<Vec<(String, String)>, String> {
-        let sql = format!(
-            "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = {} AND table_name = {} ORDER BY ordinal_position",
-            literal(&t.esquema),
-            literal(&t.nome)
-        );
-        let r = self.executar(&sql, usize::MAX)?;
-        Ok(r.linhas.into_iter().map(|l| (l.first().cloned().flatten().unwrap_or_default(), l.get(1).cloned().flatten().unwrap_or_default())).collect())
+    /// As colunas da tabela, na ordem dela.
+    fn colunas(&mut self, t: &Tabela) -> Result<Vec<Coluna>, String>;
+
+    /// Todas as colunas de todas as tabelas (o dicionário do banco), para buscar e exportar.
+    /// O padrão pergunta tabela por tabela; Postgres e MySQL respondem numa consulta só.
+    fn dicionario(&mut self) -> Result<Vec<CampoDe>, String> {
+        let mut saida = Vec::new();
+        for t in self.tabelas()? {
+            for c in self.colunas(&t)? {
+                saida.push(CampoDe { esquema: t.esquema.clone(), tabela: t.nome.clone(), coluna: c.nome, tipo: c.tipo });
+            }
+        }
+        Ok(saida)
     }
 }
 
@@ -259,6 +267,36 @@ pub(crate) fn tabelas_do_catalogo(b: &mut dyn Banco, sql: &str) -> Result<Vec<Ta
         .map(|l| {
             let campo = |i: usize| l.get(i).cloned().flatten().unwrap_or_default();
             Tabela { esquema: campo(0), nome: campo(1), visao: campo(2).contains("VIEW") }
+        })
+        .collect())
+}
+
+/// Colunas de uma consulta ao catálogo que devolve nome, tipo, aceita vazio (YES/NO), padrão e chave (S/N).
+pub(crate) fn colunas_do_catalogo(b: &mut dyn Banco, sql: &str) -> Result<Vec<Coluna>, String> {
+    let r = b.executar(sql, usize::MAX)?;
+    Ok(r.linhas
+        .into_iter()
+        .map(|l| {
+            let campo = |i: usize| l.get(i).cloned().flatten();
+            Coluna {
+                nome: campo(0).unwrap_or_default(),
+                tipo: campo(1).unwrap_or_default(),
+                nulo: campo(2).is_some_and(|v| v.eq_ignore_ascii_case("YES")),
+                padrao: campo(3),
+                chave: campo(4).as_deref() == Some("S"),
+            }
+        })
+        .collect())
+}
+
+/// O dicionário a partir de uma consulta que devolve esquema, tabela, coluna e tipo.
+pub(crate) fn dicionario_do_catalogo(b: &mut dyn Banco, sql: &str) -> Result<Vec<CampoDe>, String> {
+    let r = b.executar(sql, usize::MAX)?;
+    Ok(r.linhas
+        .into_iter()
+        .map(|l| {
+            let campo = |i: usize| l.get(i).cloned().flatten().unwrap_or_default();
+            CampoDe { esquema: campo(0), tabela: campo(1), coluna: campo(2), tipo: campo(3) }
         })
         .collect())
 }
@@ -476,6 +514,10 @@ mod testes {
         if let Some(t) = tabelas.first() {
             let cols = b.colunas(t).unwrap();
             println!("colunas de {}: {:?}", t.nome, cols);
+            assert!(cols.iter().any(|c| c.chave), "a chave primária aparece");
+            let d = b.dicionario().unwrap();
+            println!("dicionário: {} colunas", d.len());
+            assert!(d.iter().any(|c| c.tabela == t.nome));
             let r = b.executar(&format!("SELECT * FROM {}", t.qualificado(Tipo::Postgres)), 3).unwrap();
             println!("{:?}\n{:?}", r.colunas, r.linhas);
         }
@@ -509,7 +551,12 @@ mod testes {
         assert!(r.cortado);
         let t = b.tabelas().unwrap();
         assert_eq!(t, vec![Tabela { esquema: String::new(), nome: "pessoas".into(), visao: false }]);
-        assert_eq!(b.colunas(&t[0]).unwrap()[1], ("nome".into(), "TEXT".into()));
+        let cols = b.colunas(&t[0]).unwrap();
+        assert_eq!(cols[0], Coluna { nome: "id".into(), tipo: "INTEGER".into(), nulo: true, padrao: None, chave: true });
+        assert_eq!((cols[1].nome.as_str(), cols[1].tipo.as_str()), ("nome", "TEXT"));
+        let d = b.dicionario().unwrap();
+        assert_eq!(d.len(), 3);
+        assert_eq!((d[2].tabela.as_str(), d[2].coluna.as_str()), ("pessoas", "nota"));
         assert!(b.executar("select * from nao_existe", 10).is_err());
         drop(b);
         std::fs::remove_file(&p).unwrap();

@@ -226,6 +226,8 @@ fn em_grade(docs: impl Iterator<Item = Result<Document, String>>, limite: usize)
         lidos.push(d);
     }
     r.linhas = lidos.iter().map(|d| r.colunas.iter().map(|c| d.get(c).and_then(texto)).collect()).collect();
+    // O tipo de cada campo: o do primeiro documento em que ele não é nulo.
+    r.tipos = r.colunas.iter().map(|c| lidos.iter().filter_map(|d| d.get(c)).find(|v| !matches!(v, Bson::Null)).map_or("", tipo).to_owned()).collect();
     Ok(r)
 }
 
@@ -277,13 +279,13 @@ impl Banco for Mongo {
     }
 
     /// O Mongo não tem colunas fixas: os campos dos primeiros 50 documentos, com o tipo do primeiro que aparece.
-    fn colunas(&mut self, t: &Tabela) -> Result<Vec<(String, String)>, String> {
+    fn colunas(&mut self, t: &Tabela) -> Result<Vec<crate::Coluna>, String> {
         let cursor = self.banco()?.collection::<Document>(&t.nome).find(Document::new()).limit(50).run().map_err(|e| erro(&e))?;
-        let mut campos: Vec<(String, String)> = Vec::new();
+        let mut campos: Vec<crate::Coluna> = Vec::new();
         for d in cursor {
             for (k, v) in d.map_err(|e| erro(&e))? {
-                if !campos.iter().any(|(c, _)| *c == k) {
-                    campos.push((k, tipo(&v).into()));
+                if !campos.iter().any(|c| c.nome == k) {
+                    campos.push(crate::Coluna { chave: k == "_id", nome: k, tipo: tipo(&v).into(), nulo: true, padrao: None });
                 }
             }
         }

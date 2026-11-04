@@ -41,8 +41,10 @@ impl Banco for My {
         // Vários comandos: fica o último conjunto com colunas (ou a contagem do último comando).
         while let Some(conjunto) = consulta.iter() {
             let colunas: Vec<String> = conjunto.columns().as_ref().iter().map(|c| c.name_str().into_owned()).collect();
+            // MYSQL_TYPE_VAR_STRING vira var_string: o nome do tipo sem o prefixo.
+            let tipos: Vec<String> = conjunto.columns().as_ref().iter().map(|c| format!("{:?}", c.column_type()).trim_start_matches("MYSQL_TYPE_").to_lowercase()).collect();
             let afetadas = conjunto.affected_rows();
-            let mut atual = Resultado { colunas, ..Resultado::default() };
+            let mut atual = Resultado { colunas, tipos, ..Resultado::default() };
             for linha in conjunto {
                 let linha = linha.map_err(|e| e.to_string())?;
                 if atual.linhas.len() >= limite {
@@ -60,6 +62,24 @@ impl Banco for My {
             r = atual;
         }
         Ok(r)
+    }
+
+    fn colunas(&mut self, t: &crate::Tabela) -> Result<Vec<crate::Coluna>, String> {
+        let sql = format!(
+            "SELECT column_name, column_type, is_nullable, column_default, CASE WHEN column_key = 'PRI' THEN 'S' ELSE 'N' END \
+             FROM information_schema.columns WHERE table_schema = {} AND table_name = {} ORDER BY ordinal_position",
+            crate::literal(&t.esquema),
+            crate::literal(&t.nome)
+        );
+        crate::colunas_do_catalogo(self, &sql)
+    }
+
+    fn dicionario(&mut self) -> Result<Vec<crate::CampoDe>, String> {
+        crate::dicionario_do_catalogo(
+            self,
+            "SELECT table_schema, table_name, column_name, column_type FROM information_schema.columns \
+             WHERE table_schema = DATABASE() ORDER BY 1, 2, ordinal_position",
+        )
     }
 
     fn bancos(&mut self) -> Result<Vec<String>, String> {

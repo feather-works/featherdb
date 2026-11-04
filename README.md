@@ -21,7 +21,10 @@ Think DBeaver, without the weight: it opens instantly and uses about 100 MB of R
 - **Table tree:** with no database chosen, it lists the server's databases (like DBeaver); tables, views and columns with their types; double-click a table to see its data;
   right-click for SELECT, COUNT, copy the name, edit or delete.
   A filter finds tables in databases with thousands of them.
-- **Results:** up to 1,000 rows, in pages of 200; copy everything to paste into FeatherSheet or Excel,
+- **Table view:** Data and Structure tabs; each column shows its type (with an icon per kind), whether it
+  allows empty, its default and the key. Edit or add a column and see the SQL before it runs. Search tables
+  and columns by name across open databases; export a table's columns or the whole database dictionary.
+- **Results:** up to 1,000 rows that scroll lightly (only what is on screen is drawn); copy everything to paste into FeatherSheet or Excel,
   or export CSV.
 - **Private:** no account, no telemetry. Passwords go only to the system's password vault (GNOME Keyring/KWallet,
   Windows Credential Manager), never to a file; connections are kept in `~/.config/featherdb/conexoes.txt` and the editor text in `rascunho.sql`.

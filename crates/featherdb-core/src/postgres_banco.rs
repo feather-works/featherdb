@@ -54,7 +54,33 @@ impl Banco for Pg {
                 _ => {}
             }
         }
+        if !r.colunas.is_empty() && crate::dividir(sql).len() == 1 {
+            if let Ok(st) = self.0.prepare(sql) {
+                r.tipos = st.columns().iter().map(|c| c.type_().name().to_owned()).collect();
+            }
+        }
         Ok(r)
+    }
+
+    fn colunas(&mut self, t: &crate::Tabela) -> Result<Vec<crate::Coluna>, String> {
+        // pg_attribute dá o tipo como o Postgres escreve (varchar(120), numeric(12,2)) e a chave pelo índice primário.
+        let sql = format!(
+            "SELECT a.attname, format_type(a.atttypid, a.atttypmod), CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END, \
+             pg_get_expr(d.adbin, d.adrelid), \
+             CASE WHEN EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = a.attrelid AND i.indisprimary AND a.attnum = ANY(i.indkey)) THEN 'S' ELSE 'N' END \
+             FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum \
+             WHERE a.attrelid = {}::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum",
+            crate::literal(&t.qualificado(crate::Tipo::Postgres))
+        );
+        crate::colunas_do_catalogo(self, &sql)
+    }
+
+    fn dicionario(&mut self) -> Result<Vec<crate::CampoDe>, String> {
+        crate::dicionario_do_catalogo(
+            self,
+            "SELECT table_schema, table_name, column_name, data_type FROM information_schema.columns \
+             WHERE table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY 1, 2, ordinal_position",
+        )
     }
 
     fn bancos(&mut self) -> Result<Vec<String>, String> {

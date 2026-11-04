@@ -300,7 +300,7 @@ impl Banco for Odbc {
             .collect())
     }
 
-    fn colunas(&mut self, t: &Tabela) -> Result<Vec<(String, String)>, String> {
+    fn colunas(&mut self, t: &Tabela) -> Result<Vec<crate::Coluna>, String> {
         let st = self.comando()?;
         let (esq, nome) = (w(&t.esquema), w(&t.nome));
         let (pe, te) = if esq.is_empty() { (std::ptr::null(), 0) } else { (esq.as_ptr(), esq.len() as i16) };
@@ -309,9 +309,22 @@ impl Banco for Odbc {
         if !ok(r) {
             return Err(diagnostico(self.api, HANDLE_STMT, st.1));
         }
-        // Colunas do SQLColumns: 4 = COLUMN_NAME, 6 = TYPE_NAME.
+        // Colunas do SQLColumns: 4 = COLUMN_NAME, 6 = TYPE_NAME, 7 = COLUMN_SIZE, 13 = COLUMN_DEF, 18 = IS_NULLABLE.
         let res = self.ler(&st, usize::MAX)?;
-        Ok(res.linhas.into_iter().map(|l| (l.get(3).cloned().flatten().unwrap_or_default(), l.get(5).cloned().flatten().unwrap_or_default())).collect())
+        Ok(res
+            .linhas
+            .into_iter()
+            .map(|l| {
+                let c = |i: usize| l.get(i).cloned().flatten();
+                let tipo = c(5).unwrap_or_default();
+                // Tamanho só para texto (VARCHAR(120)); número já diz o tamanho pelo próprio tipo.
+                let tipo = match c(6) {
+                    Some(n) if crate::estrutura::familia(&tipo) == crate::estrutura::Familia::Texto => format!("{tipo}({n})"),
+                    _ => tipo,
+                };
+                crate::Coluna { nome: c(3).unwrap_or_default(), tipo, nulo: c(17).as_deref() != Some("NO"), padrao: c(12), chave: false }
+            })
+            .collect())
     }
 }
 
