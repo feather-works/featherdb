@@ -29,6 +29,10 @@ pub(crate) enum Campo {
     Senha(String),
     Caminho(String),
     Tls(bool),
+    TlsConferir(bool),
+    /// 0: autoridade (CA), 1: certificado do cliente, 2: chave do cliente.
+    Certificado(u8, String),
+    EscolherCertificado(u8),
     Lembrar(bool),
     EscolherArquivo,
     Testar,
@@ -71,6 +75,41 @@ impl Formulario {
         Ok(c)
     }
 
+    fn certificado_mut(&mut self, i: u8) -> &mut String {
+        match i {
+            0 => &mut self.c.tls_ca,
+            1 => &mut self.c.tls_cert,
+            _ => &mut self.c.tls_chave,
+        }
+    }
+
+    /// As opções do TLS: conferir o certificado do servidor, a autoridade (CA) e o certificado do cliente.
+    fn certificados(&self) -> Element<'_, Msg> {
+        let arquivo = |rotulo: &str, valor: &str, i: u8| -> Element<'static, Msg> {
+            row![
+                column![
+                    text(rotulo.to_owned()).size(12).color(COR_TEXTO_MUTED()),
+                    text_input(tr("opcional"), valor.to_owned()).on_input(move |s| Msg::Form(Campo::Certificado(i, s))).padding([6, 9]).size(12.5),
+                ]
+                .spacing(4)
+                .width(Length::FILL),
+                feather_ui::dialogo::botao_secundario(tr("Escolher…"), Some(Msg::Form(Campo::EscolherCertificado(i)))),
+            ]
+            .spacing(8)
+            .align(Align::End)
+            .into()
+        };
+        let mut c = column![
+            checkbox(tr("Conferir o certificado do servidor (desligue para servidor interno com certificado próprio)"), self.c.tls_conferir).on_toggle(|v| Msg::Form(Campo::TlsConferir(v))).size(13)
+        ]
+        .spacing(10)
+        .padding(pelicano::Padding { top: 0.0, right: 0.0, bottom: 0.0, left: 26.0 });
+        if self.c.tls_conferir {
+            c = c.push(arquivo(tr("Certificado da autoridade (CA) da empresa"), &self.c.tls_ca, 0));
+        }
+        c.push(row![arquivo(tr("Certificado do cliente"), &self.c.tls_cert, 1), arquivo(tr("Chave do cliente"), &self.c.tls_chave, 2)].spacing(12)).into()
+    }
+
     pub(crate) fn view(&self) -> Dialogo<'_, Msg> {
         let f = |c: Campo| Msg::Form(c);
         let campo = |rotulo: &str, valor: &str, msg: fn(String) -> Campo| -> Element<'static, Msg> {
@@ -101,6 +140,9 @@ impl Formulario {
                 corpo = corpo.push(row![campo(tr("Usuário"), &self.c.usuario, Campo::Usuario), self.campo_senha()].spacing(12));
                 corpo = corpo.push(self.caixa_lembrar());
                 corpo = corpo.push(checkbox(tr("Conexão criptografada (TLS), exigida pela maioria dos bancos na nuvem"), self.c.tls).on_toggle(|v| Msg::Form(Campo::Tls(v))).size(13));
+                if self.c.tls {
+                    corpo = corpo.push(self.certificados());
+                }
             }
             Tipo::Sqlite => {
                 corpo = corpo.push(
@@ -201,6 +243,17 @@ impl App {
                 None => form.c.caminho = s,
             },
             Campo::Tls(v) => form.c.tls = v,
+            Campo::TlsConferir(v) => form.c.tls_conferir = v,
+            Campo::Certificado(i, s) => *form.certificado_mut(i) = s,
+            Campo::EscolherCertificado(i) => {
+                let atual = form.certificado_mut(i).clone();
+                return Task::perform(
+                    async {
+                        rfd::AsyncFileDialog::new().add_filter("PEM", &["pem", "crt", "cer", "key", "der"]).add_filter("*", &["*"]).pick_file().await.map(|a| a.path().to_string_lossy().into_owned())
+                    },
+                    move |c| Msg::Form(Campo::Certificado(i, c.unwrap_or(atual))),
+                );
+            }
             Campo::Lembrar(v) => form.c.lembrar_senha = v,
             Campo::EscolherArquivo => {
                 // Cancelar a escolha mantém o arquivo que já estava no campo.

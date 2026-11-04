@@ -1,5 +1,4 @@
 //! PostgreSQL pelo protocolo simples: o servidor devolve todo valor já como texto, de qualquer tipo.
-use std::sync::Arc;
 
 use postgres::{Client, NoTls, SimpleQueryMessage};
 
@@ -14,12 +13,7 @@ pub(crate) fn conectar(c: &Conexao, senha: &str) -> Result<Box<dyn Banco>, Strin
     cfg.connect_timeout(std::time::Duration::from_secs(15));
     let mut conector = None;
     let cliente = if c.tls {
-        let raizes = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
-        let tls = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-            .with_safe_default_protocol_versions()
-            .map_err(|e| e.to_string())?
-            .with_root_certificates(raizes)
-            .with_no_client_auth();
+        let tls = crate::tls::config(c)?;
         cfg.ssl_mode(postgres::config::SslMode::Require);
         let tls = tokio_postgres_rustls::MakeRustlsConnect::new(tls);
         conector = Some(tls.clone());

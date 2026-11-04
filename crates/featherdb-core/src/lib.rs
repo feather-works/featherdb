@@ -9,6 +9,7 @@ mod mysql_banco;
 mod odbc;
 mod postgres_banco;
 mod sqlite_banco;
+mod tls;
 
 use std::path::{Path, PathBuf};
 
@@ -77,6 +78,13 @@ pub struct Conexao {
     pub caminho: String,
     /// Postgres e MySQL: conexão criptografada (TLS).
     pub tls: bool,
+    /// Com TLS: conferir se o certificado do servidor é de quem diz ser (desligado = só criptografar,
+    /// para servidores internos com certificado próprio).
+    pub tls_conferir: bool,
+    /// Arquivos PEM: a autoridade (CA) da empresa, e o certificado e a chave do cliente (quando o servidor pede).
+    pub tls_ca: String,
+    pub tls_cert: String,
+    pub tls_chave: String,
     /// Guardar a senha no cofre do sistema ([`cofre`]) e não pedir de novo.
     pub lembrar_senha: bool,
 }
@@ -92,6 +100,10 @@ impl Conexao {
             usuario: String::new(),
             caminho: String::new(),
             tls: false,
+            tls_conferir: true,
+            tls_ca: String::new(),
+            tls_cert: String::new(),
+            tls_chave: String::new(),
             lembrar_senha: true,
         }
     }
@@ -129,8 +141,10 @@ impl Conexao {
             Some((h, p)) => (h, p.parse().ok()?),
             None => (servidor, tipo.porta_padrao()),
         };
-        let tls = consulta.split('&').any(|p| matches!(p, "sslmode=require" | "sslmode=verify-full" | "sslmode=verify-ca" | "ssl=true" | "ssl-mode=REQUIRED"));
-        let c = Conexao { host: decodificar(host), porta, banco: decodificar(banco), usuario: decodificar(usuario), tls, ..Conexao::nova(tipo) };
+        let tls = consulta.split('&').any(|p| matches!(p, "sslmode=require" | "sslmode=verify-full" | "sslmode=verify-ca" | "ssl=true" | "ssl-mode=REQUIRED" | "ssl-mode=VERIFY_IDENTITY" | "ssl-mode=VERIFY_CA"));
+        // `require` só criptografa (como no psql); `verify-*` confere o certificado.
+        let tls_conferir = !consulta.split('&').any(|p| matches!(p, "sslmode=require" | "ssl-mode=REQUIRED"));
+        let c = Conexao { host: decodificar(host), porta, banco: decodificar(banco), usuario: decodificar(usuario), tls, tls_conferir, ..Conexao::nova(tipo) };
         Some((c, decodificar(senha)))
     }
 
@@ -468,12 +482,13 @@ pub fn ler_conexoes(arquivo: &Path) -> Vec<Conexao> {
         .lines()
         .filter_map(|l| {
             let c: Vec<&str> = l.split('\t').collect();
-            // O 9º campo (lembrar a senha) veio depois: linha antiga com 8 campos continua valendo.
+            // Os campos 9 (lembrar a senha) e 10 a 13 (certificados) vieram depois: linha antiga continua valendo.
             let (tipo, nome, host, porta, banco, usuario, caminho, tls, lembrar) = match c[..] {
                 [a, b, h, p, d, u, k, t] => (a, b, h, p, d, u, k, t, "1"),
-                [a, b, h, p, d, u, k, t, l] => (a, b, h, p, d, u, k, t, l),
+                [a, b, h, p, d, u, k, t, l, ..] => (a, b, h, p, d, u, k, t, l),
                 _ => return None,
             };
+            let extra = |i: usize| c.get(i).copied().unwrap_or("");
             Some(Conexao {
                 nome: nome.into(),
                 tipo: Tipo::de_codigo(tipo)?,
@@ -483,6 +498,10 @@ pub fn ler_conexoes(arquivo: &Path) -> Vec<Conexao> {
                 usuario: usuario.into(),
                 caminho: caminho.into(),
                 tls: tls == "1",
+                tls_conferir: extra(9) != "0",
+                tls_ca: extra(10).into(),
+                tls_cert: extra(11).into(),
+                tls_chave: extra(12).into(),
                 lembrar_senha: lembrar == "1",
             })
         })
@@ -496,7 +515,7 @@ pub fn gravar_conexoes(arquivo: &Path, conexoes: &[Conexao]) -> Result<(), Strin
         .iter()
         .map(|c| {
             format!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                 c.tipo.codigo(),
                 limpo(&c.nome),
                 limpo(&c.host),
@@ -505,7 +524,11 @@ pub fn gravar_conexoes(arquivo: &Path, conexoes: &[Conexao]) -> Result<(), Strin
                 limpo(&c.usuario),
                 limpo(&c.caminho),
                 u8::from(c.tls),
-                u8::from(c.lembrar_senha)
+                u8::from(c.lembrar_senha),
+                u8::from(c.tls_conferir),
+                limpo(&c.tls_ca),
+                limpo(&c.tls_cert),
+                limpo(&c.tls_chave)
             )
         })
         .collect();
@@ -571,6 +594,8 @@ mod testes {
         c.nome = "Produção\tnova".into();
         c.banco = "vendas".into();
         c.tls = true;
+        c.tls_conferir = false;
+        c.tls_ca = "/etc/ssl/empresa-ca.pem".into();
         let d = Conexao { caminho: "Driver={HDBODBC};ServerNode=x:443".into(), ..Conexao::nova(Tipo::Odbc) };
         gravar_conexoes(&p, &[c.clone(), d.clone()]).unwrap();
         let lidas = ler_conexoes(&p);

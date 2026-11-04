@@ -265,5 +265,10 @@
  "Plano da consulta (EXPLAIN) do comando do cursor": "Query plan (EXPLAIN) of the command at the cursor",
  "Pôr no editor": "Put in the editor",
  "SQL copiado.": "SQL copied.",
- "SQL da tabela posto no editor.": "Table SQL put in the editor."
+ "SQL da tabela posto no editor.": "Table SQL put in the editor.",
+ "Certificado da autoridade (CA) da empresa": "Company certificate authority (CA)",
+ "Certificado do cliente": "Client certificate",
+ "Chave do cliente": "Client key",
+ "Conferir o certificado do servidor (desligue para servidor interno com certificado próprio)": "Verify the server certificate (turn off for an internal server with its own certificate)",
+ "opcional": "optional"
 }

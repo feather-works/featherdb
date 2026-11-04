@@ -14,7 +14,13 @@ pub(crate) fn conectar(c: &Conexao, senha: &str) -> Result<Box<dyn Banco>, Strin
         .pass(Some(senha.to_owned()))
         .db_name((!c.banco.is_empty()).then(|| c.banco.clone()))
         .tcp_connect_timeout(Some(std::time::Duration::from_secs(15)))
-        .ssl_opts(c.tls.then(SslOpts::default));
+        .ssl_opts(c.tls.then(|| {
+            let vazio = |s: &str| (!s.trim().is_empty()).then(|| std::path::PathBuf::from(s.trim()));
+            SslOpts::default()
+                .with_danger_accept_invalid_certs(!c.tls_conferir)
+                .with_root_cert_path(vazio(&c.tls_ca))
+                .with_client_identity(vazio(&c.tls_cert).zip(vazio(&c.tls_chave)).map(|(cert, chave)| mysql::ClientIdentity::new(cert, chave)))
+        }));
     Conn::new(opts.clone()).map(|c| Box::new(My(c, opts)) as Box<dyn Banco>).map_err(|e| e.to_string())
 }
 
