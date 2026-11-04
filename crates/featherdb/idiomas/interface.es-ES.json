@@ -416,5 +416,9 @@
  "Importar": "Importar",
  "Nenhuma coluna do CSV tem o nome de uma coluna da tabela.": "Ninguna columna del CSV tiene el nombre de una columna de la tabla.",
  "O arquivo não tem linhas depois do cabeçalho.": "El archivo no tiene filas después del encabezado.",
- "{} linhas vão entrar em {}.": "{} filas van a entrar en {}."
+ "{} linhas vão entrar em {}.": "{} filas van a entrar en {}.",
+ "Parâmetros": "Parámetros",
+ "Rodar": "Ejecutar",
+ "Valores dos parâmetros. Número entra como número; o resto vira texto entre aspas.": "Valores de los parámetros. Un número entra como número; el resto se vuelve texto entre comillas.",
+ "todas as colunas": "todas las columnas"
 }

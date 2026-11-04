@@ -127,6 +127,9 @@ enum Msg {
     Apagar(Alvo, Tabela),
     ConfirmarApagar(bool),
     Importar(importar::AcaoImportar),
+    Parametro(usize, String),
+    ConfirmarParametros(bool),
+    Comentar,
     Aba(Aba),
     Ddl(String, Result<String, String>),
     CopiarDdl,
@@ -242,6 +245,10 @@ struct App {
     /// Pedindo confirmação para apagar (DROP) uma tabela ou view.
     apagar: Option<(Alvo, Tabela)>,
     importacao: Option<importar::Importacao>,
+    /// Pedindo os valores dos parâmetros `:nome`: os comandos e cada nome com o valor digitado.
+    parametros: Option<(Vec<String>, Vec<(String, String)>)>,
+    /// O último valor de cada parâmetro (para não digitar de novo).
+    valores_param: HashMap<String, String>,
     /// A janela do histórico aberta, com o texto da busca.
     historico: Option<(String, Vec<historico::Entrada>)>,
     /// O texto do filtro da árvore de tabelas.
@@ -342,6 +349,8 @@ impl App {
             renomear: None,
             apagar: None,
             importacao: None,
+            parametros: None,
+            valores_param: HashMap::new(),
             historico: None,
             filtro: String::new(),
             menu: None,
@@ -538,6 +547,25 @@ impl App {
             return Task::none();
         }
         let conexao = self.item_ativo().map(|i| i.conexao.clone());
+        // Parâmetros `:nome`: pergunta os valores antes (os últimos usados já vêm preenchidos).
+        if conexao.as_ref().is_some_and(|c| c.tipo != Tipo::MongoDb) {
+            let mut nomes: Vec<String> = Vec::new();
+            for c in &comandos {
+                for n in featherdb_core::parametros(c) {
+                    if !nomes.contains(&n) {
+                        nomes.push(n);
+                    }
+                }
+            }
+            if !nomes.is_empty() {
+                let valores = nomes.into_iter().map(|n| {
+                    let v = self.valores_param.get(&n).cloned().unwrap_or_default();
+                    (n, v)
+                });
+                self.parametros = Some((comandos, valores.collect()));
+                return Task::none();
+            }
+        }
         let muda = comandos.iter().any(|c| featherdb_core::muda_dados(c));
         if muda && conexao.as_ref().is_some_and(|c| c.somente_leitura) {
             self.erro = Some(tr("Esta conexão é só leitura: comandos que mudam dados não rodam. Para mudar, edite a conexão e desligue Só leitura.").into());
@@ -892,6 +920,34 @@ impl pelicano::App for App {
             },
             Msg::Apagar(alvo, t) => self.apagar = Some((alvo, t)),
             Msg::Importar(a) => return self.update_importar(a),
+            Msg::Parametro(i, v) => {
+                if let Some((_, vals)) = &mut self.parametros {
+                    if let Some(p) = vals.get_mut(i) {
+                        p.1 = v;
+                    }
+                }
+            }
+            Msg::ConfirmarParametros(sim) => {
+                let Some((comandos, vals)) = self.parametros.take() else { return Task::none() };
+                if sim {
+                    for (n, v) in &vals {
+                        self.valores_param.insert(n.clone(), v.clone());
+                    }
+                    let prontos = comandos.iter().map(|c| featherdb_core::com_parametros(c, &vals)).collect();
+                    return self.rodar(prontos);
+                }
+            }
+            Msg::Comentar => {
+                // Liga e desliga o `-- ` no começo de cada linha (da seleção, ou a do cursor).
+                self.editor.edit_lines(|l| {
+                    let recuo = l.len() - l.trim_start().len();
+                    match l[recuo..].strip_prefix("--") {
+                        Some(resto) => (recuo + 2 + usize::from(resto.starts_with(' ')), l[..recuo].to_owned()),
+                        None => (0, "-- ".to_owned()),
+                    }
+                });
+                self.gravar_rascunho();
+            }
             Msg::ConfirmarApagar(sim) => {
                 let Some((alvo, t)) = self.apagar.take() else { return Task::none() };
                 if sim {
@@ -1271,6 +1327,9 @@ impl pelicano::App for App {
         if self.importacao.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::Importar(importar::AcaoImportar::Confirmar(false)));
         }
+        if self.parametros.is_some() {
+            return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::ConfirmarParametros(false));
+        }
         if self.celulas.confirmar.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::Celula(celulas::AcaoCelula::Confirmar(false)));
         }
@@ -1317,6 +1376,21 @@ impl pelicano::App for App {
         }
         if self.importacao.is_some() {
             return self.view_importar(janela);
+        }
+        if let Some((_, vals)) = &self.parametros {
+            let mut corpo = column![text(tr("Valores dos parâmetros. Número entra como número; o resto vira texto entre aspas.")).size(12.5).color(COR_TEXTO_MUTED())].spacing(10);
+            for (i, (n, v)) in vals.iter().enumerate() {
+                let campo = pelicano::text_input("", v.as_str()).on_input(move |s| Msg::Parametro(i, s)).on_submit(Msg::ConfirmarParametros(true)).padding([6, 9]).size(13);
+                let campo = if i == 0 { campo.autofocus(1) } else { campo };
+                corpo = corpo.push(row![text(format!(":{n}")).size(13).font(Font::MONO).width(140), campo].spacing(10).align(Align::Center));
+            }
+            return feather_ui::dialogo::Dialogo::new(tr("Parâmetros"), corpo)
+                .icone("code")
+                .largura(460.0)
+                .ao_fechar(Msg::ConfirmarParametros(false))
+                .secundario(tr("Cancelar"), Some(Msg::ConfirmarParametros(false)))
+                .primario(tr("Rodar"), Some(Msg::ConfirmarParametros(true)))
+                .sobre(janela);
         }
         if let Some((alvo, t)) = &self.apagar {
             let sql = featherdb_core::estrutura::sql_apagar(self.tipo(alvo.0), t).unwrap_or_default();
@@ -1398,6 +1472,7 @@ pub(crate) fn atalho(key: &Key, m: Modifiers) -> Option<Msg> {
         Key::Named(NamedKey::F5) => Some(Msg::ExecutarTudo),
         Key::Character(c) if m.alt_key() && c.eq_ignore_ascii_case("x") => Some(Msg::ExecutarTudo),
         Key::Character(c) if m.control_key() && m.shift_key() && c.eq_ignore_ascii_case("f") => Some(Msg::Formatar),
+        Key::Character(c) if m.control_key() && c.as_str() == "/" => Some(Msg::Comentar),
         Key::Character(c) if m.control_key() && c.eq_ignore_ascii_case("t") => Some(Msg::Abas(abas::AcaoAba::Nova)),
         Key::Character(c) if m.control_key() && c.eq_ignore_ascii_case("w") => Some(Msg::Abas(abas::AcaoAba::FecharAtual)),
         Key::Character(c) if m.control_key() && m.shift_key() && c.eq_ignore_ascii_case("s") => Some(Msg::Objeto(objetos::AcaoObjeto::SalvarComo)),

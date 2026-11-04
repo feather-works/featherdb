@@ -416,5 +416,9 @@
  "Importar": "Import",
  "Nenhuma coluna do CSV tem o nome de uma coluna da tabela.": "No CSV column has the name of a table column.",
  "O arquivo não tem linhas depois do cabeçalho.": "The file has no rows after the header.",
- "{} linhas vão entrar em {}.": "{} rows will go into {}."
+ "{} linhas vão entrar em {}.": "{} rows will go into {}.",
+ "Parâmetros": "Parameters",
+ "Rodar": "Run",
+ "Valores dos parâmetros. Número entra como número; o resto vira texto entre aspas.": "Parameter values. A number goes in as a number; anything else becomes quoted text.",
+ "todas as colunas": "all columns"
 }

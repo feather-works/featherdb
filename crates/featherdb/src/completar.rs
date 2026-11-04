@@ -87,6 +87,15 @@ impl App {
         let Some(linha) = self.editor.line(l) else { return Task::none() };
         let fim = linha.char_indices().nth(c.saturating_sub(1)).map_or(linha.len(), |(b, _)| b);
         let antes = &linha[..fim];
+        // `SELECT *` com a tabela do FROM conhecida: a lista oferece trocar o `*` pelas colunas.
+        // Só o `*` da lista do SELECT (não o de count(*) nem o de uma conta).
+        let antes_do = antes.trim_end_matches('*').trim_end().to_lowercase();
+        if antes.ends_with('*') && (antes_do.ends_with("select") || antes_do.ends_with("distinct")) {
+            if let Some(lista) = self.colunas_do_from(tipo) {
+                self.sugestao = Some(Sugestao { prefixo: "*".into(), opcoes: vec![Opcao { nome: lista, de: crate::idioma::tr("todas as colunas").into(), tipo: String::new() }], escolhida: 0 });
+            }
+            return Task::none();
+        }
         let (prefixo, dono) = palavra(antes);
         // Comentário ou texto entre aspas simples: nada a sugerir.
         if antes.contains("--") || antes.matches('\'').count() % 2 == 1 || (prefixo.chars().count() < 2 && dono.is_none()) {
@@ -126,6 +135,22 @@ impl App {
         Task::none()
     }
 
+    /// As colunas da tabela que vem depois do FROM no comando do cursor, separadas por vírgula.
+    fn colunas_do_from(&self, tipo: featherdb_core::Tipo) -> Option<String> {
+        let sql = self.comando_atual();
+        let l = sql.to_lowercase();
+        let depois = &sql[l.find(" from ")? + 6..];
+        let nome = depois.split_whitespace().next()?.trim_end_matches([';', ')', ',']);
+        let nome = nome.rsplit('.').next()?.trim_matches(['"', '`', '[', ']']);
+        let base = self.base(self.ativa.as_ref()?)?;
+        let t = base.tabelas.iter().find(|t| t.nome.eq_ignore_ascii_case(nome))?;
+        let nomes: Vec<String> = match base.colunas.get(&t.qualificado(tipo)) {
+            Some(c) => c.iter().map(|c| c.nome.clone()).collect(),
+            None => base.dicionario.as_ref()?.iter().filter(|c| c.tabela == t.nome && c.esquema == t.esquema).map(|c| c.coluna.clone()).collect(),
+        };
+        (!nomes.is_empty()).then(|| nomes.iter().map(|n| featherdb_core::identificador(n, tipo)).collect::<Vec<_>>().join(", "))
+    }
+
     pub(crate) fn tecla_sugestao(&mut self, t: Tecla) {
         let Some(s) = &mut self.sugestao else { return };
         match t {
@@ -138,18 +163,20 @@ impl App {
                 let (l, c) = self.editor.cursor();
                 let linha = self.editor.line(l).unwrap_or_default();
                 let fim = linha.char_indices().nth(c.saturating_sub(1)).map_or(linha.len(), |(b, _)| b);
-                if palavra(&linha[..fim]).0 != s.prefixo {
+                let asterisco = s.prefixo == "*";
+                if (asterisco && !linha[..fim].ends_with('*')) || (!asterisco && palavra(&linha[..fim]).0 != s.prefixo) {
                     return;
                 }
                 let tipo = self.ativa.as_ref().map_or(featherdb_core::Tipo::Postgres, |a| self.tipo(a.0));
-                let nome = featherdb_core::identificador(&o.nome, tipo);
+                // O `*` vira a lista das colunas (já com aspas onde precisa).
+                let nome = if asterisco { o.nome.clone() } else { featherdb_core::identificador(&o.nome, tipo) };
                 let (_, c) = self.editor.cursor();
                 // Troca o começo da linha até o cursor: o que foi digitado (e uma aspa aberta antes) sai, o nome entra.
                 let prefixo = s.prefixo;
                 self.editor.edit_lines(move |linha| {
                     let fim = linha.char_indices().nth(c.saturating_sub(1)).map_or(linha.len(), |(b, _)| b);
                     let mut ini = fim.saturating_sub(prefixo.len());
-                    if linha[..ini].ends_with(['"', '`']) {
+                    if prefixo != "*" && linha[..ini].ends_with(['"', '`']) {
                         ini -= 1;
                     }
                     (fim, format!("{}{nome}", &linha[..ini]))

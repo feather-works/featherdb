@@ -539,6 +539,70 @@ pub fn so_le(sql: &str) -> bool {
     matches!(p.as_str(), "select" | "show" | "explain" | "describe" | "desc" | "values" | "table") || ((p == "with" || p.starts_with("db.")) && !escreve)
 }
 
+/// Os parâmetros `:nome` do SQL, na ordem e sem repetir. Não contam: `::tipo` do Postgres, `a[1:2]`,
+/// nem o que está em texto ou comentário.
+pub fn parametros(sql: &str) -> Vec<String> {
+    let mut saida: Vec<String> = Vec::new();
+    for (ini, fim) in trechos_de_parametro(sql) {
+        let n = &sql[ini + 1..fim];
+        if !saida.iter().any(|s| s == n) {
+            saida.push(n.to_owned());
+        }
+    }
+    saida
+}
+
+/// Onde estão os `:nome` (início no `:`, fim depois do nome).
+fn trechos_de_parametro(sql: &str) -> Vec<(usize, usize)> {
+    let b = sql.as_bytes();
+    let mut saida = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            q @ (b'\'' | b'"' | b'`') => {
+                i += 1;
+                while i < b.len() && b[i] != q {
+                    i += 1;
+                }
+            }
+            b'-' if b.get(i + 1) == Some(&b'-') => {
+                while i < b.len() && b[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b':' if b.get(i + 1) == Some(&b':') => i += 1,
+            b':' if b.get(i + 1).is_some_and(|c| c.is_ascii_alphabetic() || *c == b'_') && (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b':')) => {
+                let mut f = i + 1;
+                while f < b.len() && (b[f].is_ascii_alphanumeric() || b[f] == b'_') {
+                    f += 1;
+                }
+                saida.push((i, f));
+                i = f - 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    saida
+}
+
+/// Troca cada `:nome` pelo valor. Número, NULL, TRUE/FALSE e o que já vem entre aspas entram como estão;
+/// o resto vira texto entre aspas.
+pub fn com_parametros(sql: &str, valores: &[(String, String)]) -> String {
+    let mut s = String::with_capacity(sql.len());
+    let mut ultimo = 0;
+    for (ini, fim) in trechos_de_parametro(sql) {
+        let Some((_, v)) = valores.iter().find(|(n, _)| *n == sql[ini + 1..fim]) else { continue };
+        s.push_str(&sql[ultimo..ini]);
+        let v = v.trim();
+        let cru = v.parse::<f64>().is_ok() || ["null", "true", "false"].contains(&v.to_ascii_lowercase().as_str()) || (v.starts_with('\'') && v.ends_with('\'') && v.len() > 1);
+        s.push_str(&if cru { v.to_owned() } else { literal(v) });
+        ultimo = fim;
+    }
+    s.push_str(&sql[ultimo..]);
+    s
+}
+
 /// Comando que muda dados ou estrutura (o que uma conexão só leitura barra e uma de produção confirma).
 /// Leitura, SET e controle de transação não contam.
 pub fn muda_dados(sql: &str) -> bool {
@@ -720,6 +784,10 @@ mod testes {
         assert!(!so_le("update t set a = 1"));
         assert!(!so_le("WITH x AS (SELECT 1) DELETE FROM t"));
         assert!(!so_le("db.pedidos.deleteMany({})"));
+        assert_eq!(parametros("select * from t where a = :id and b::text = ':x' and c = :nome and d = :id -- :y"), ["id", "nome"]);
+        assert!(parametros("select arr[1:2], '10:30'").is_empty());
+        let v = |n: &str, x: &str| (n.to_owned(), x.to_owned());
+        assert_eq!(com_parametros("where a = :id and b = :nome", &[v("id", "7"), v("nome", "O'Neil")]), "where a = 7 and b = 'O''Neil'");
         assert!(muda_dados("insert into t values (1)") && muda_dados("drop table t") && !muda_dados("select 1") && !muda_dados("COMMIT") && !muda_dados("set search_path to x"));
         assert!(muda_estrutura("CREATE VIEW v AS SELECT 1") && muda_estrutura("  drop table t") && !muda_estrutura("select 1"));
     }
