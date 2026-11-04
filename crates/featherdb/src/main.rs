@@ -2,6 +2,7 @@
 //! editor de SQL e a grade do resultado. Postgres, MySQL, SQLite e qualquer banco com ODBC.
 mod ajuda;
 mod auxiliares;
+mod completar;
 mod config;
 mod estrutura_ui;
 mod formulario;
@@ -108,6 +109,7 @@ enum Msg {
     CopiarDdl,
     DdlNoEditor,
     Formatar,
+    Sugestao(completar::Tecla),
     Explicar,
     EditarColuna(Option<Coluna>),
     Edicao(CampoColuna),
@@ -167,6 +169,8 @@ struct App {
     aba: Aba,
     /// O CREATE da tabela aberta (aba SQL): de qual tabela e o que veio (`None` enquanto lê).
     ddl: Option<(String, Option<Result<String, String>>)>,
+    /// A lista de nomes para completar no editor, quando aberta.
+    sugestao: Option<completar::Sugestao>,
     edicao: Option<EdicaoColuna>,
     /// Depois de um ALTER TABLE: ler de novo as colunas desta tabela.
     recarregar: Option<(Alvo, Tabela)>,
@@ -259,6 +263,7 @@ impl App {
             tabela_aberta: None,
             aba: Aba::Dados,
             ddl: None,
+            sugestao: None,
             edicao: None,
             recarregar: None,
             aviso: String::new(),
@@ -913,7 +918,11 @@ impl pelicano::App for App {
                 // Cada comando vai sozinho: nem todo driver ODBC aceita vários de uma vez.
                 return self.rodar(featherdb_core::dividir(&self.comando_atual()));
             }
-            Msg::EditorMudou => self.gravar_rascunho(),
+            Msg::EditorMudou => {
+                self.gravar_rascunho();
+                return self.sugerir();
+            }
+            Msg::Sugestao(t) => self.tecla_sugestao(t),
             Msg::ExecutarTudo => {
                 self.tabela_aberta = None;
                 self.aba = Aba::Dados;
@@ -1101,7 +1110,7 @@ impl pelicano::App for App {
 }
 
 /// Os atalhos da janela principal (os mesmos do DBeaver, para quem vem de lá).
-fn atalho(key: &Key, m: Modifiers) -> Option<Msg> {
+pub(crate) fn atalho(key: &Key, m: Modifiers) -> Option<Msg> {
     match key {
         Key::Named(NamedKey::Enter) if m.control_key() && m.shift_key() => Some(Msg::ExecutarTudo),
         Key::Named(NamedKey::Enter) if m.control_key() => Some(Msg::Executar),
@@ -1328,10 +1337,14 @@ impl App {
             .wrap(false)
             .line_numbers(true)
             .placeholder(tr("Escreva o SQL aqui. Ctrl+Enter roda o comando onde está o cursor."))
-            .on_key(atalho)
+            .on_key(self.teclas_editor())
             .on_change(Msg::EditorMudou)
             .colors(move |linha| grade::cores_sql(linha, cor_chave, cor_comentario));
-        let editor = painel(column![self.cabecalho_editor(), divisoria(), container(editor).height(Length::FILL).width(Length::FILL)]).height(Length::Fill(2));
+        let mut texto = pelicano::stack![container(editor).height(Length::FILL).width(Length::FILL)];
+        if let Some(s) = self.view_sugestao() {
+            texto = texto.push(s);
+        }
+        let editor = painel(column![self.cabecalho_editor(), divisoria(), texto]).height(Length::Fill(2));
         let resultado = painel(self.view_resultado()).height(Length::Fill(3));
         container(column![editor, resultado].spacing(8).width(Length::FILL))
             .padding(8)
