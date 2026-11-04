@@ -776,12 +776,24 @@ impl App {
         if base.tabelas.is_empty() {
             saida.push(container(text(tr("nenhuma tabela")).size(12).color(COR_TEXTO_MUTED())).padding(pelicano::Padding { top: 3.0, right: 0.0, bottom: 3.0, left: recuo + 34.0 }).into());
         }
+        // Um esquema só (o `public` do Postgres, quase sempre): só o nome da tabela. Mais de um: um título
+        // por esquema, com as tabelas embaixo (o catálogo já vem ordenado por esquema).
+        let varios = base.tabelas.iter().any(|t| t.esquema != base.tabelas[0].esquema);
+        let mut esquema_atual: Option<&str> = None;
         for t in achadas.iter().take(MAX_ARVORE).copied() {
+            if varios && esquema_atual != Some(t.esquema.as_str()) {
+                esquema_atual = Some(&t.esquema);
+                saida.push(
+                    container(text(t.esquema.clone()).size(11.5).font(Font::SEMIBOLD).color(COR_TEXTO_MUTED()))
+                        .padding(pelicano::Padding { top: 6.0, right: 0.0, bottom: 2.0, left: recuo + 20.0 })
+                        .into(),
+                );
+            }
             let chave = t.qualificado(tipo);
             let aberta = base.tabelas_abertas.contains(&chave);
-            let nome = if t.esquema.is_empty() || tipo == Tipo::MySql { t.nome.clone() } else { format!("{}.{}", t.esquema, t.nome) };
+            let nome = t.nome.clone();
             let linha = row![
-                Space::new(recuo + 14.0, 0),
+                Space::new(recuo + if varios { 22.0 } else { 14.0 }, 0),
                 icone_tabler(if aberta { SETA_BAIXO } else { SETA_DIREITA }, 12.0).color(COR_TEXTO_MUTED()),
                 if t.visao { icone_tabler(VISAO, 15.0).color(COR_TEXTO_MUTED()) } else { feather_ui::icones::icone_traco("table", 15.0).color(COR_TEXTO_MUTED()) },
                 text(nome).size(12.5).no_wrap().ellipsis(),
