@@ -182,6 +182,19 @@ pub fn sql_excluir(tipo: Tipo, tabela: &str, colunas: &[String], chaves: &[usize
     (!onde.is_empty()).then(|| format!("DELETE FROM {tabela} WHERE {}", onde.join(" AND ")))
 }
 
+/// O DROP de uma tabela, view ou view materializada.
+pub fn sql_apagar(tipo: Tipo, t: &crate::Tabela) -> Result<String, String> {
+    let objeto = match (t.materializada, t.visao) {
+        (true, _) => "MATERIALIZED VIEW",
+        (_, true) => "VIEW",
+        _ => "TABLE",
+    };
+    match tipo {
+        Tipo::MongoDb => Err("No MongoDB apague a coleção pelo editor: db.colecao.drop() não é aceito aqui.".into()),
+        _ => Ok(format!("DROP {objeto} {}", t.qualificado(tipo))),
+    }
+}
+
 /// O SQL que troca o nome de uma tabela, view ou view materializada (o esquema continua o mesmo).
 pub fn sql_renomear(tipo: Tipo, t: &crate::Tabela, novo: &str) -> Result<String, String> {
     let novo = novo.trim();

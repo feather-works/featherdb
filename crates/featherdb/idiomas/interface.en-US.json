@@ -398,5 +398,13 @@
  "Conectar por túnel SSH (banco atrás de um servidor)": "Connect through an SSH tunnel (database behind a server)",
  "Senha do SSH (ou da chave)": "SSH password (or key passphrase)",
  "Servidor SSH": "SSH server",
- "Usuário SSH": "SSH user"
+ "Usuário SSH": "SSH user",
+ "A tabela e todos os dados dela saem do banco. Não tem como desfazer.": "The table and all its data leave the database. This cannot be undone.",
+ "Apagar {}?": "Drop {}?",
+ "Apagar": "Drop",
+ "Apagar…": "Drop…",
+ "Chaves estrangeiras": "Foreign keys",
+ "Gatilhos": "Triggers",
+ "Não foi possível ler os índices: {}": "Could not read the indexes: {}",
+ "Índices": "Indexes"
 }

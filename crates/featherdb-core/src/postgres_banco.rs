@@ -95,6 +95,15 @@ impl Banco for Pg {
         Ok(crate::estrutura::ddl(crate::Tipo::Postgres, &nome, &colunas))
     }
 
+    fn detalhes(&mut self, t: &crate::Tabela) -> Result<crate::Detalhes, String> {
+        let r = crate::literal(&t.qualificado(crate::Tipo::Postgres));
+        Ok(crate::Detalhes {
+            indices: crate::pares(self, &format!("SELECT i.relname, pg_get_indexdef(x.indexrelid) FROM pg_index x JOIN pg_class i ON i.oid = x.indexrelid WHERE x.indrelid = {r}::regclass ORDER BY 1"))?,
+            estrangeiras: crate::pares(self, &format!("SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = {r}::regclass AND contype = 'f' ORDER BY 1"))?,
+            gatilhos: crate::pares(self, &format!("SELECT tgname, pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid = {r}::regclass AND NOT tgisinternal ORDER BY 1"))?,
+        })
+    }
+
     fn funcoes(&mut self) -> Result<Vec<crate::Funcao>, String> {
         // Só as da pessoa: sem as do sistema e sem as que vieram de extensão (o PostGIS tem milhares).
         let r = self.executar(

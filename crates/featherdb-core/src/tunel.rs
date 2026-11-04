@@ -141,4 +141,7 @@ impl Banco for ComTunel {
     fn dicionario(&mut self) -> Result<Vec<CampoDe>, String> {
         self.banco.dicionario()
     }
+    fn detalhes(&mut self, t: &Tabela) -> Result<crate::Detalhes, String> {
+        self.banco.detalhes(t)
+    }
 }

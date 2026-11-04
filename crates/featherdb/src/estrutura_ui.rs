@@ -176,7 +176,34 @@ impl App {
             let par = n % 2 == 1;
             lista = lista.push(container(linha).style(move |_| if par { Style::default().background(COR_PAINEL_FAIXA()) } else { Style::default() }));
         }
+        // Embaixo das colunas: índices, chaves estrangeiras e gatilhos (cada um com o SQL dele).
+        if let Some(d) = self.base(alvo).and_then(|b| b.detalhes.get(&t.qualificado(tipo_banco))) {
+            for (titulo, itens) in [(tr("Índices"), &d.indices), (tr("Chaves estrangeiras"), &d.estrangeiras), (tr("Gatilhos"), &d.gatilhos)] {
+                if itens.is_empty() {
+                    continue;
+                }
+                lista = lista.push(Space::new(0, 10)).push(container(text(format!("{titulo} ({})", itens.len())).size(12.5).font(Font::SEMIBOLD).color(COR_TEXTO_MUTED())).padding([4, 12]));
+                for (nome, def) in itens {
+                    lista = lista.push(
+                        row![
+                            container(text(nome.clone()).size(12.5).no_wrap().ellipsis()).width(L_NOME).padding([0, 8]),
+                            text(def.clone()).size(12).font(Font::MONO).color(COR_TEXTO_MUTED()),
+                        ]
+                        .padding([4, 26])
+                        .align(Align::Center),
+                    );
+                }
+            }
+        }
         rolagem(lista).width(Length::FILL).height(Length::FILL).into()
+    }
+
+    /// Lê índices, chaves estrangeiras e gatilhos da tabela aberta (uma vez por tabela).
+    pub(crate) fn carregar_detalhes(&self) -> Task<Msg> {
+        let Some((alvo, t)) = self.tabela_aberta.clone() else { return Task::none() };
+        let chave = t.qualificado(self.tipo(alvo.0));
+        let Some(banco) = self.base(&alvo).filter(|b| !b.detalhes.contains_key(&chave)).and_then(|b| b.banco.clone()) else { return Task::none() };
+        em_segundo_plano(move || crate::travar(&banco)?.detalhes(&t), move |r| Msg::Detalhes(alvo, chave, r))
     }
 
     /// Lê o CREATE TABLE da tabela aberta (uma vez por tabela).

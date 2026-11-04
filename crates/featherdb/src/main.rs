@@ -64,6 +64,8 @@ struct Base {
     /// Funções e procedimentos (Postgres e MySQL) e se a lista está aberta na árvore.
     funcoes: Vec<featherdb_core::Funcao>,
     funcoes_abertas: bool,
+    /// Índices, chaves estrangeiras e gatilhos das tabelas já vistas na aba Estrutura.
+    detalhes: HashMap<String, featherdb_core::Detalhes>,
 }
 
 /// Uma conexão da lista, com o que está aberto dela nesta sessão.
@@ -120,6 +122,9 @@ enum Msg {
     /// O último campo diz se é para exportar depois de ler.
     Colunas(Alvo, String, Result<Vec<Coluna>, String>, bool),
     VerEstrutura(Alvo, Tabela),
+    Detalhes(Alvo, String, Result<featherdb_core::Detalhes, String>),
+    Apagar(Alvo, Tabela),
+    ConfirmarApagar(bool),
     Aba(Aba),
     Ddl(String, Result<String, String>),
     CopiarDdl,
@@ -232,6 +237,8 @@ struct App {
     transacao_nova: Option<Alvo>,
     /// Renomeando uma tabela: onde, qual e o nome novo digitado.
     renomear: Option<(Alvo, Tabela, String)>,
+    /// Pedindo confirmação para apagar (DROP) uma tabela ou view.
+    apagar: Option<(Alvo, Tabela)>,
     /// A janela do histórico aberta, com o texto da busca.
     historico: Option<(String, Vec<historico::Entrada>)>,
     /// O texto do filtro da árvore de tabelas.
@@ -330,6 +337,7 @@ impl App {
             ddl_em: None,
             transacao_nova: None,
             renomear: None,
+            apagar: None,
             historico: None,
             filtro: String::new(),
             menu: None,
@@ -446,6 +454,7 @@ impl App {
                     let chave = t.qualificado(self.tipo(alvo.0));
                     if let Some(b) = self.base_mut(&alvo) {
                         b.colunas.remove(&chave);
+                        b.detalhes.remove(&chave);
                         b.dicionario = None;
                     }
                     self.tabela_aberta = Some((alvo.clone(), t.clone()));
@@ -820,6 +829,7 @@ impl pelicano::App for App {
                 }
                 if let Some(b) = self.base_mut(&alvo) {
                     b.colunas.clear();
+                    b.detalhes.clear();
                     b.tabelas_abertas.clear();
                     b.dicionario = None;
                 }
@@ -862,12 +872,41 @@ impl pelicano::App for App {
                 self.tabela_aberta = Some((alvo.clone(), t.clone()));
                 self.aba = Aba::Estrutura;
                 let tipo = self.tipo(alvo.0);
+                let detalhes = self.carregar_detalhes();
                 if !self.base(&alvo).is_some_and(|b| b.colunas.contains_key(&t.qualificado(tipo))) {
-                    return self.carregar_colunas(alvo, t, false);
+                    return Task::batch([self.carregar_colunas(alvo, t, false), detalhes]);
+                }
+                return detalhes;
+            }
+            Msg::Detalhes(alvo, chave, r) => match r {
+                Ok(d) => {
+                    if let Some(b) = self.base_mut(&alvo) {
+                        b.detalhes.insert(chave, d);
+                    }
+                }
+                Err(e) => self.aviso = trf("Não foi possível ler os índices: {}", &[&e]),
+            },
+            Msg::Apagar(alvo, t) => self.apagar = Some((alvo, t)),
+            Msg::ConfirmarApagar(sim) => {
+                let Some((alvo, t)) = self.apagar.take() else { return Task::none() };
+                if sim {
+                    match featherdb_core::estrutura::sql_apagar(self.tipo(alvo.0), &t) {
+                        Ok(sql) => {
+                            if self.tabela_aberta.as_ref().is_some_and(|(_, a)| *a == t) {
+                                self.tabela_aberta = None;
+                            }
+                            self.ativa = Some(alvo);
+                            return self.rodar(vec![sql]);
+                        }
+                        Err(e) => self.aviso = e,
+                    }
                 }
             }
             Msg::Aba(a) => {
                 self.aba = a;
+                if a == Aba::Estrutura {
+                    return self.carregar_detalhes();
+                }
                 if a == Aba::Sql {
                     return self.carregar_ddl();
                 }
@@ -1221,6 +1260,9 @@ impl pelicano::App for App {
         if self.renomear.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::Objeto(objetos::AcaoObjeto::ConfirmarRenomear(false)));
         }
+        if self.apagar.is_some() {
+            return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::ConfirmarApagar(false));
+        }
         if self.celulas.confirmar.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::Celula(celulas::AcaoCelula::Confirmar(false)));
         }
@@ -1264,6 +1306,21 @@ impl pelicano::App for App {
         }
         if self.renomear.is_some() {
             return self.view_renomear(janela);
+        }
+        if let Some((alvo, t)) = &self.apagar {
+            let sql = featherdb_core::estrutura::sql_apagar(self.tipo(alvo.0), t).unwrap_or_default();
+            let corpo = column![
+                text(tr("A tabela e todos os dados dela saem do banco. Não tem como desfazer.")).size(13),
+                container(text(sql).size(12).font(Font::MONO)).padding(10).width(Length::FILL).style(|_| Style::default().background(COR_PAINEL_FAIXA()).border(Border::rounded(6.0))),
+            ]
+            .spacing(10);
+            return feather_ui::dialogo::Dialogo::new(trf("Apagar {}?", &[&t.nome]), corpo)
+                .icone("trash")
+                .largura(480.0)
+                .ao_fechar(Msg::ConfirmarApagar(false))
+                .secundario(tr("Cancelar"), Some(Msg::ConfirmarApagar(false)))
+                .primario(tr("Apagar"), Some(Msg::ConfirmarApagar(true)))
+                .sobre(janela);
         }
         if self.celulas.confirmar.is_some() {
             return self.view_salvar_celulas(janela);
@@ -1859,6 +1916,7 @@ impl App {
                     ))
                     .push(item(traco("copy"), tr("Copiar o nome"), Some(Msg::CopiarTexto(t.qualificado(tipo)))))
                     .push(item(traco("pencil"), tr("Renomear…"), matches!(tipo, Tipo::Postgres | Tipo::MySql | Tipo::Sqlite).then(|| Msg::Objeto(objetos::AcaoObjeto::Renomear(id.clone(), t.clone())))))
+                    .push(item(traco("trash"), tr("Apagar…"), (!mongo).then(|| Msg::Apagar(id.clone(), t.clone()))))
                     .push(item(traco("file-export"), if mongo { tr("Exportar os campos (CSV)") } else { tr("Exportar as colunas (CSV)") }, Some(Msg::ExportarColunasDe(id.clone(), t.clone()))));
             }
         }

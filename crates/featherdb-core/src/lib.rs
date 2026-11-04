@@ -253,6 +253,23 @@ pub struct Tabela {
     pub materializada: bool,
 }
 
+/// O que mais a tabela tem além das colunas: cada item é o nome e o SQL (ou a descrição) dele.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Detalhes {
+    pub indices: Vec<(String, String)>,
+    pub estrangeiras: Vec<(String, String)>,
+    pub gatilhos: Vec<(String, String)>,
+}
+
+/// Lista de pares (nome, definição) de uma consulta ao catálogo com essas duas colunas.
+pub(crate) fn pares(b: &mut dyn Banco, sql: &str) -> Result<Vec<(String, String)>, String> {
+    Ok(b.executar(sql, usize::MAX)?
+        .linhas
+        .into_iter()
+        .map(|l| (l.first().cloned().flatten().unwrap_or_default(), l.get(1).cloned().flatten().unwrap_or_default()))
+        .collect())
+}
+
 /// Uma função ou procedimento do banco (o corpo é lido só quando a pessoa abre).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Funcao {
@@ -328,6 +345,11 @@ pub trait Banco: Send {
     /// Os bancos do servidor (Postgres e MySQL), para a árvore quando a conexão não escolheu um.
     fn bancos(&mut self) -> Result<Vec<String>, String> {
         Ok(Vec::new())
+    }
+
+    /// Índices, chaves estrangeiras e gatilhos da tabela (Postgres, MySQL e SQLite).
+    fn detalhes(&mut self, _t: &Tabela) -> Result<Detalhes, String> {
+        Ok(Detalhes::default())
     }
 
     /// As funções e procedimentos criados pela pessoa (Postgres e MySQL; os outros não listam).
@@ -534,6 +556,8 @@ fn separadores(texto: &str) -> Vec<usize> {
     let b = texto.as_bytes();
     let mut saida = Vec::new();
     let mut i = 0;
+    // O comando atual cria gatilho/função/procedimento, a profundidade de BEGIN … END e quantas palavras já vieram.
+    let (mut rotina, mut nivel, mut palavras) = (false, 0usize, 0usize);
     while i < b.len() {
         match b[i] {
             q @ (b'\'' | b'"' | b'`') => {
@@ -565,7 +589,36 @@ fn separadores(texto: &str) -> Vec<usize> {
                     }
                 }
             }
-            b';' => saida.push(i),
+            // Corpo de gatilho, função ou procedimento (SQLite e MySQL): o `;` de dentro do BEGIN … END não corta.
+            c if c.is_ascii_alphabetic() => {
+                let ini = i;
+                while i + 1 < b.len() && (b[i + 1].is_ascii_alphanumeric() || b[i + 1] == b'_') {
+                    i += 1;
+                }
+                let p = texto[ini..=i].to_ascii_lowercase();
+                if palavras < 4 {
+                    rotina |= matches!(p.as_str(), "trigger" | "procedure" | "function");
+                    palavras += 1;
+                }
+                if rotina {
+                    match p.as_str() {
+                        "begin" | "case" => nivel += 1,
+                        "end" => {
+                            // END IF / END LOOP / END WHILE / END REPEAT fecham o que não abriu nível.
+                            let resto = texto[i + 1..].trim_start().to_ascii_lowercase();
+                            if !["if", "loop", "while", "repeat"].iter().any(|w| resto.starts_with(w) && !resto[w.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_')) {
+                                nivel = nivel.saturating_sub(1);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            b';' if rotina && nivel > 0 => {}
+            b';' => {
+                saida.push(i);
+                (rotina, nivel, palavras) = (false, 0, 0);
+            }
             _ => {}
         }
         i += 1;
@@ -688,6 +741,11 @@ mod testes {
         let funcao = "create function f() returns int as $$ begin return 1; end $$ language plpgsql;\nselect $1;\nselect 2";
         assert_eq!(dividir(funcao).len(), 3);
         assert!(dividir(funcao)[0].ends_with("plpgsql"));
+        let gatilho = "create trigger tg after insert on t begin update x set a = 1; select case when 1 then 2 end; end; select 2";
+        assert_eq!(dividir(gatilho), vec!["create trigger tg after insert on t begin update x set a = 1; select case when 1 then 2 end; end", "select 2"]);
+        let mysql = "CREATE PROCEDURE p() BEGIN IF 1 THEN SELECT 1; END IF; SELECT 2; END; begin; select 3";
+        assert_eq!(dividir(mysql).len(), 3);
+        assert!(dividir(mysql)[0].ends_with("SELECT 2; END"));
     }
 
     #[test]
@@ -866,6 +924,12 @@ mod testes {
         assert_eq!(d.len(), 3);
         assert_eq!((d[2].tabela.as_str(), d[2].coluna.as_str()), ("pessoas", "nota"));
         assert_eq!(b.ddl(&t[0]).unwrap(), "CREATE TABLE pessoas (id integer primary key, nome text, nota real);\n");
+        b.executar("create table notas (id integer primary key, pessoa int references pessoas(id)); create unique index ix_nome on pessoas(nome); create trigger tg after insert on pessoas begin select 1; end", 0).unwrap();
+        let d = b.detalhes(&t[0]).unwrap();
+        assert_eq!(d.indices.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["ix_nome"]);
+        assert_eq!(d.gatilhos[0].0, "tg");
+        let notas = Tabela { nome: "notas".into(), ..Default::default() };
+        assert_eq!(b.detalhes(&notas).unwrap().estrangeiras[0].1, "FOREIGN KEY (pessoa) REFERENCES pessoas(id)");
         assert!(b.executar("select * from nao_existe", 10).is_err());
         drop(b);
         std::fs::remove_file(&p).unwrap();

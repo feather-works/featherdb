@@ -74,6 +74,22 @@ impl Banco for Lite {
         Ok(format!("{sql};\n"))
     }
 
+    fn detalhes(&mut self, t: &Tabela) -> Result<crate::Detalhes, String> {
+        let n = crate::literal(&t.nome);
+        Ok(crate::Detalhes {
+            // Índice sem SQL é o que o SQLite cria sozinho para a chave ou um UNIQUE.
+            indices: crate::pares(self, &format!("SELECT name, COALESCE(sql, 'automático (chave ou UNIQUE)') FROM sqlite_master WHERE type = 'index' AND tbl_name = {n} ORDER BY 1"))?,
+            estrangeiras: crate::pares(
+                self,
+                &format!(
+                    "SELECT 'fk' || id, 'FOREIGN KEY (' || group_concat(\"from\", ', ') || ') REFERENCES ' || \"table\" || '(' || group_concat(\"to\", ', ') || ')' \
+                     FROM pragma_foreign_key_list({n}) GROUP BY id ORDER BY id"
+                ),
+            )?,
+            gatilhos: crate::pares(self, &format!("SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = {n} ORDER BY 1"))?,
+        })
+    }
+
     fn colunas(&mut self, t: &Tabela) -> Result<Vec<crate::Coluna>, String> {
         let mut st = self.0.prepare("SELECT name, type, \"notnull\", dflt_value, pk FROM pragma_table_info(?1)").map_err(|e| e.to_string())?;
         let linhas = st

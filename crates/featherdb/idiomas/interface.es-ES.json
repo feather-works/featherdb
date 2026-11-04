@@ -398,5 +398,13 @@
  "Conectar por túnel SSH (banco atrás de um servidor)": "Conectar por túnel SSH (base detrás de un servidor)",
  "Senha do SSH (ou da chave)": "Contraseña SSH (o de la clave)",
  "Servidor SSH": "Servidor SSH",
- "Usuário SSH": "Usuario SSH"
+ "Usuário SSH": "Usuario SSH",
+ "A tabela e todos os dados dela saem do banco. Não tem como desfazer.": "La tabla y todos sus datos salen de la base. No se puede deshacer.",
+ "Apagar {}?": "¿Eliminar {}?",
+ "Apagar": "Eliminar",
+ "Apagar…": "Eliminar…",
+ "Chaves estrangeiras": "Claves foráneas",
+ "Gatilhos": "Disparadores",
+ "Não foi possível ler os índices: {}": "No se pudieron leer los índices: {}",
+ "Índices": "Índices"
 }

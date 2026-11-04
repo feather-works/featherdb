@@ -97,6 +97,33 @@ impl Banco for My {
         Ok(format!("{sql};\n"))
     }
 
+    fn detalhes(&mut self, t: &crate::Tabela) -> Result<crate::Detalhes, String> {
+        let onde = |esq: &str, tab: &str| format!("{esq} = {} AND {tab} = {}", crate::literal(&t.esquema), crate::literal(&t.nome));
+        Ok(crate::Detalhes {
+            indices: crate::pares(
+                self,
+                &format!(
+                    "SELECT index_name, CONCAT(IF(MAX(non_unique) = 0, 'UNIQUE ', ''), '(', GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ', '), ')') \
+                     FROM information_schema.statistics WHERE {} GROUP BY index_name ORDER BY 1",
+                    onde("table_schema", "table_name")
+                ),
+            )?,
+            estrangeiras: crate::pares(
+                self,
+                &format!(
+                    "SELECT constraint_name, CONCAT('FOREIGN KEY (', GROUP_CONCAT(column_name ORDER BY ordinal_position SEPARATOR ', '), ') REFERENCES ', \
+                     MAX(referenced_table_name), '(', GROUP_CONCAT(referenced_column_name ORDER BY ordinal_position SEPARATOR ', '), ')') \
+                     FROM information_schema.key_column_usage WHERE {} AND referenced_table_name IS NOT NULL GROUP BY constraint_name ORDER BY 1",
+                    onde("table_schema", "table_name")
+                ),
+            )?,
+            gatilhos: crate::pares(
+                self,
+                &format!("SELECT trigger_name, CONCAT(action_timing, ' ', event_manipulation, ': ', action_statement) FROM information_schema.triggers WHERE {} ORDER BY 1", onde("event_object_schema", "event_object_table")),
+            )?,
+        })
+    }
+
     fn funcoes(&mut self) -> Result<Vec<crate::Funcao>, String> {
         let r = self.executar(
             "SELECT routine_schema, routine_name, '', routine_name, routine_type FROM information_schema.routines \
