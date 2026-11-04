@@ -15,7 +15,8 @@ La idea de DBeaver, sin el peso: abre al instante y usa unos 100 MB de memoria.
   otra base por **ODBC**. **MongoDB** y Atlas (`mongodb+srv://`): colecciones en el árbol, `find`, `aggregate` y
   `countDocuments` en el editor, documentos como filas: SAP Datasphere/HANA, TIBCO TDV, SQL Server, Oracle, Snowflake… Cumple el papel
   de los drivers JDBC de DBeaver, sin Java. El administrador ODBC se carga solo al conectar: FeatherDB
-  abre aunque unixODBC no esté instalado.
+  abre aunque unixODBC no esté instalado. **Túnel SSH** (contraseña o clave privada) para bases detrás de un servidor.
+  Conexión de **solo lectura** (la base rechaza cambios) y de **producción** (pide confirmación antes de cambiar datos).
 - **Editor SQL:** `Ctrl+Enter` ejecuta la sentencia del cursor (o la selección); `Alt+X`/`F5` ejecuta
   todo el script. Las consultas corren en segundo plano: la ventana nunca se congela, y **Detener** las cancela.
   Pestañas de consulta (`Ctrl+T`), cada una con su SQL, conexión y resultado; nombres de tablas y columnas completados
@@ -23,15 +24,17 @@ La idea de DBeaver, sin el peso: abre al instante y usa unos 100 MB de memoria.
   Funciones (PostgreSQL, MySQL) y vistas materializadas en el árbol, con REFRESH; plantillas de vista, vista materializada y función. Ejecutar un `.sql` sin abrirlo;
   renombrar tablas desde el árbol; el árbol se actualiza solo después de `CREATE`/`ALTER`/`DROP`. Un `DELETE` o
   `UPDATE` sin `WHERE` pregunta antes de ejecutarse. La conexión caída se rehace sola.
+  **Commit manual** con Commit y Rollback; parámetros `:nombre` preguntados antes de ejecutar; `Ctrl+/` comenta la línea; cambiar el `*` por las columnas.
 - **Árbol de tablas:** sin base elegida, lista las bases del servidor (como DBeaver); tablas, vistas y columnas con su tipo; doble clic en una tabla muestra los datos;
-  el clic derecho tiene SELECT, COUNT, copiar el nombre, editar y eliminar.
+  el clic derecho tiene SELECT, COUNT, copiar el nombre, renombrar, eliminar, **importar CSV**, editar y borrar. **Diagrama de tablas**
+  con las claves foráneas y **sesiones activas** del servidor (PostgreSQL, MySQL).
   Un filtro encuentra la tabla en bases con miles de ellas.
 - **Vista de la tabla:** pestañas Datos, Estructura y SQL (el `CREATE TABLE`); doble clic en una celda edita los datos
   (tablas con clave primaria; Guardar muestra los `UPDATE` y graba todo o nada); cada columna muestra su tipo (con ícono por familia), si
-  acepta vacío, el predeterminado y la clave. Editar o crear columnas viendo el SQL antes. Búsqueda de tablas y
+  acepta vacío, el predeterminado y la clave, además de índices, claves foráneas y disparadores. Nueva fila y eliminar fila (grabadas juntas al Guardar). Editar o crear columnas viendo el SQL antes. Búsqueda de tablas y
   columnas por nombre en las bases abiertas; exportar las columnas de una tabla o el diccionario de toda la base.
-- **Resultado:** hasta 1.000 filas que se desplazan livianas (solo se dibuja lo que aparece en pantalla); clic en una columna ordena, filtrar filas; copiar todo para pegar en FeatherSheet o Excel,
-  o exportar CSV.
+- **Resultado:** 1.000 filas por vez (+1000 trae más) que se desplazan livianas (solo se dibuja lo que aparece en pantalla); clic en una columna ordena, filtrar filas; panel de valor
+  (JSON ordenado, suma, promedio, mínimo y máximo de la columna); copiar como hoja de cálculo, INSERT, JSON o Markdown; exportar CSV, JSON o SQL.
 - **Privado:** sin cuenta, sin telemetría. La contraseña solo va al almacén de contraseñas del sistema (GNOME Keyring/KWallet,
   Administrador de credenciales de Windows), nunca a un archivo; las conexiones quedan en `~/.config/featherdb/conexoes.txt` el texto del editor en `rascunho.sql` y el historial en `historico.txt`.
 - Ayuda (F1), Configuración (tema, color de acento, idioma) y Novedades, en portugués, inglés y español.

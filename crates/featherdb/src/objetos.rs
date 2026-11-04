@@ -46,6 +46,20 @@ async fn escolher_sql() -> Option<(PathBuf, Result<String, String>)> {
 }
 
 /// Bancos que listam funções e têm view materializada.
+pub(crate) fn tem_sessoes(t: Tipo) -> bool {
+    matches!(t, Tipo::Postgres | Tipo::MySql)
+}
+
+/// Quem está conectado no servidor e o que está rodando. Para derrubar uma sessão, a nota no fim diz como.
+pub(crate) fn sql_sessoes(t: Tipo) -> &'static str {
+    match t {
+        Tipo::MySql => "-- Para derrubar uma sessão: KILL <Id>;  (só a consulta: KILL QUERY <Id>;)\nSHOW FULL PROCESSLIST",
+        _ => "-- Para derrubar uma sessão: SELECT pg_terminate_backend(<pid>);  (só a consulta: pg_cancel_backend)\n\
+SELECT pid, usename AS usuario, datname AS banco, client_addr AS de, state AS estado, now() - query_start AS rodando_ha, wait_event AS esperando, query AS consulta\n\
+FROM pg_stat_activity\nWHERE backend_type = 'client backend'\nORDER BY query_start NULLS LAST",
+    }
+}
+
 pub(crate) fn tem_funcoes(t: Tipo) -> bool {
     matches!(t, Tipo::Postgres | Tipo::MySql)
 }

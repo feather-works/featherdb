@@ -78,6 +78,14 @@ pub(crate) static VERSOES: [novidades::Versao; 1] = [novidades::Versao {
         "Funções e views materializadas na árvore; modelos de view, view materializada e função.",
         "Rodar um arquivo .sql sem abrir; renomear tabela pela árvore; a árvore se atualiza sozinha depois de CREATE, ALTER e DROP.",
         "Ordenar números grandes (ids de 20 dígitos) sem errar.",
+        "Commit manual com Commit e Rollback; conexão só leitura e conexão de produção (pede confirmação).",
+        "Túnel SSH para bancos atrás de um servidor, com senha ou chave privada.",
+        "Nova linha e excluir linha na grade; +1000 linhas; painel de valor com soma e média da coluna.",
+        "Copiar como INSERT, JSON ou Markdown; exportar CSV, JSON ou SQL.",
+        "Índices, chaves estrangeiras e gatilhos na estrutura; apagar tabela pela árvore.",
+        "Importar CSV numa tabela, tudo ou nada.",
+        "Parâmetros :nome perguntados antes de rodar; Ctrl+/ comenta a linha; trocar o * pelas colunas.",
+        "Diagrama das tabelas com as chaves estrangeiras e sessões ativas do servidor.",
     ],
 }];
 

@@ -15,7 +15,8 @@ Think DBeaver, without the weight: it opens instantly and uses about 100 MB of R
   **MongoDB** and Atlas (`mongodb+srv://`): collections in the tree, `find`, `aggregate` and
   `countDocuments` in the editor, documents as rows. Any other database through **ODBC**: SAP Datasphere/HANA, TIBCO TDV, SQL Server, Oracle, Snowflake…
   It plays the role of DBeaver's JDBC drivers, without Java. The ODBC manager is loaded only when you
-  connect, so FeatherDB opens even if unixODBC is not installed.
+  connect, so FeatherDB opens even if unixODBC is not installed. **SSH tunnel** (password or private key) for databases behind a server.
+  **Read-only** connections (the database refuses changes) and **production** connections (asks before changing data).
 - **SQL editor:** `Ctrl+Enter` runs the statement under the cursor (or the selection); `Alt+X`/`F5` runs
   the whole script. Queries run in the background, so the window never freezes, and **Stop** cancels them.
   Query tabs (`Ctrl+T`), each with its own SQL, connection and result; table and column names completed as you type;
@@ -23,15 +24,17 @@ Think DBeaver, without the weight: it opens instantly and uses about 100 MB of R
   Functions (PostgreSQL, MySQL) and materialized views in the tree, with REFRESH; templates for view, materialized view and function. Run a `.sql` file without opening it;
   rename tables from the tree; the tree refreshes itself after `CREATE`/`ALTER`/`DROP`. A `DELETE` or `UPDATE` without
   `WHERE` asks before running. A dropped connection is reopened on its own.
+  **Manual commit** with Commit and Rollback; `:name` parameters asked before running; `Ctrl+/` comments the line; replace `*` with the columns.
 - **Table tree:** with no database chosen, it lists the server's databases (like DBeaver); tables, views and columns with their types; double-click a table to see its data;
-  right-click for SELECT, COUNT, copy the name, edit or delete.
+  right-click for SELECT, COUNT, copy the name, rename, drop, **import CSV**, edit or delete. **Table diagram**
+  with foreign keys and the server's **active sessions** (PostgreSQL, MySQL).
   A filter finds tables in databases with thousands of them.
 - **Table view:** Data, Structure and SQL (the `CREATE TABLE`) tabs; double-click a cell to edit the data
   (tables with a primary key; Save shows the `UPDATE`s and writes all or nothing); each column shows its type (with an icon per kind), whether it
-  allows empty, its default and the key. Edit or add a column and see the SQL before it runs. Search tables
+  allows empty, its default and the key, plus indexes, foreign keys and triggers. New row and delete row (written together on Save). Edit or add a column and see the SQL before it runs. Search tables
   and columns by name across open databases; export a table's columns or the whole database dictionary.
-- **Results:** up to 1,000 rows that scroll lightly (only what is on screen is drawn); click a column to sort, filter the rows; copy everything to paste into FeatherSheet or Excel,
-  or export CSV.
+- **Results:** 1,000 rows at a time (+1000 fetches more) that scroll lightly (only what is on screen is drawn); click a column to sort, filter the rows; value panel
+  (formatted JSON, the column's sum, average, minimum and maximum); copy as spreadsheet, INSERT, JSON or Markdown; export CSV, JSON or SQL.
 - **Private:** no account, no telemetry. Passwords go only to the system's password vault (GNOME Keyring/KWallet,
   Windows Credential Manager), never to a file; connections are kept in `~/.config/featherdb/conexoes.txt` the editor text in `rascunho.sql` and the history in `historico.txt`.
 - Help (F1), Settings (theme, accent color, language) and What's new, in Portuguese, English and Spanish.

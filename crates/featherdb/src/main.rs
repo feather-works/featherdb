@@ -5,6 +5,7 @@ mod abas;
 mod auxiliares;
 mod celulas;
 mod completar;
+mod diagrama;
 mod config;
 mod estrutura_ui;
 mod formulario;
@@ -108,6 +109,11 @@ enum Msg {
     ConfirmarExclusao(bool),
     ConfirmarPerigo(bool),
     Filtro(String),
+    /// Abrir o diagrama do banco, a leitura dele (Some com Some) ou fechar (None).
+    AbrirDiagrama(Alvo),
+    Diagrama(Option<(Alvo, Option<Result<diagrama::Diagrama, String>>)>),
+    /// Abre uma aba com as sessões ativas do servidor e roda.
+    Sessoes(Alvo),
     Form(Campo),
     Senha(String),
     LembrarSenha(bool),
@@ -216,6 +222,8 @@ struct App {
     visiveis: Vec<usize>,
     /// A tabela aberta no painel de baixo (abas Dados e Estrutura).
     tabela_aberta: Option<(Alvo, Tabela)>,
+    /// O diagrama ER aberto (None dentro = ainda lendo).
+    diagrama: Option<(Alvo, Option<Result<diagrama::Diagrama, String>>)>,
     aba: Aba,
     /// O CREATE da tabela aberta (aba SQL): de qual tabela e o que veio (`None` enquanto lê).
     ddl: Option<(String, Option<Result<String, String>>)>,
@@ -331,6 +339,7 @@ impl App {
             filtro_grade: String::new(),
             visiveis: Vec::new(),
             tabela_aberta: None,
+            diagrama: None,
             aba: Aba::Dados,
             ddl: None,
             sugestao: None,
@@ -1223,6 +1232,24 @@ impl pelicano::App for App {
             Msg::Sugestao(t) => self.tecla_sugestao(t),
             Msg::Abas(a) => return self.update_abas(a),
             Msg::Objeto(a) => return self.update_objeto(a),
+            Msg::AbrirDiagrama(alvo) => return self.abrir_diagrama(alvo),
+            Msg::Diagrama(d) => {
+                // Resposta de um diagrama já fechado ou trocado não volta a abrir.
+                let vale = match (&d, &self.diagrama) {
+                    (Some((a, Some(_))), Some((b, None))) => a == b,
+                    (Some((_, Some(_))), _) => false,
+                    _ => true,
+                };
+                if vale {
+                    self.diagrama = d;
+                }
+            }
+            Msg::Sessoes(alvo) => {
+                let sql = objetos::sql_sessoes(self.tipo(alvo.0));
+                if self.nova_aba_com(sql, Some(alvo)) {
+                    return self.rodar(vec![sql.to_owned()]);
+                }
+            }
             Msg::Celula(a) => return self.update_celula(a),
             Msg::ExecutarTudo => {
                 self.limite = LIMITE_LINHAS;
@@ -1370,6 +1397,9 @@ impl pelicano::App for App {
         }
         if self.historico.is_some() {
             return self.view_historico(janela);
+        }
+        if self.diagrama.is_some() {
+            return self.view_diagrama(janela);
         }
         if self.renomear.is_some() {
             return self.view_renomear(janela);
@@ -1939,6 +1969,8 @@ impl App {
                     .push(if ligada { item(icone_tabler(DESCONECTAR, 16.0), tr("Desconectar"), Some(Msg::Desconectar(id))) } else { item(traco("player-play"), tr("Conectar"), Some(Msg::Conectar(id))) })
                     .push(item(traco("refresh"), tr("Atualizar tabelas"), ligada.then_some(Msg::Atualizar((id, None)))))
                     .push(item(traco("file-export"), tr("Exportar o dicionário do banco (CSV)"), (ligada && !i.servidor()).then_some(Msg::ExportarDicionario((id, None)))))
+                    .push(item(traco("sitemap"), tr("Diagrama das tabelas"), (ligada && !i.servidor() && i.conexao.tipo != Tipo::MongoDb).then_some(Msg::AbrirDiagrama((id, None)))))
+                    .push(item(traco("user"), tr("Sessões ativas"), (ligada && objetos::tem_sessoes(i.conexao.tipo)).then_some(Msg::Sessoes((id, None)))))
                     .push(separador());
                 if !i.servidor() {
                     lista = modelos(lista, (id, None));
@@ -1953,6 +1985,8 @@ impl App {
                 lista = lista
                     .push(item(traco("refresh"), tr("Atualizar tabelas"), aberto.then_some(Msg::Atualizar(alvo.clone()))))
                     .push(item(traco("file-export"), tr("Exportar o dicionário do banco (CSV)"), aberto.then_some(Msg::ExportarDicionario(alvo.clone()))))
+                    .push(item(traco("sitemap"), tr("Diagrama das tabelas"), (aberto && self.tipo(*id) != Tipo::MongoDb).then_some(Msg::AbrirDiagrama(alvo.clone()))))
+                    .push(item(traco("user"), tr("Sessões ativas"), (aberto && objetos::tem_sessoes(self.tipo(*id))).then_some(Msg::Sessoes(alvo.clone()))))
                     .push(separador());
                 lista = modelos(lista, alvo);
             }

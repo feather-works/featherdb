@@ -78,6 +78,17 @@ fn montar() -> Catalogo {
                     t("Um DELETE ou UPDATE sem WHERE mudaria a tabela inteira: o FeatherDB mostra o comando e pergunta antes de rodar."),
                     t("Se a conexão caiu (servidor reiniciou, computador ficou parado), ela é refeita sozinha. Uma consulta de leitura roda de novo; um comando que muda dados não, para não rodar duas vezes."),
                 ]),
+                topico("transacoes", "Transações, só leitura e produção", vec![
+                    t("Auto-commit grava cada comando na hora. Clique nele, na faixa do editor, para passar ao Commit manual: as mudanças só ficam depois do Commit, e Rollback desfaz tudo desde o último."),
+                    t("Só leitura (na conexão): o próprio banco recusa INSERT, UPDATE, DELETE e DDL. Bom para consultar produção sem medo."),
+                    t("Produção (na conexão): a conexão ganha a marca vermelha e todo comando que muda dados pede confirmação antes de rodar."),
+                ]),
+                topico("parametros", "Parâmetros e atalhos do editor", vec![
+                    t("Escreva :nome no SQL (WHERE id = :id) e, ao rodar, o FeatherDB pergunta o valor. Número entra como número; o resto vira texto entre aspas."),
+                    t("Ctrl+/ comenta ou descomenta as linhas do cursor ou da seleção."),
+                    t("Depois de SELECT *, o completar oferece trocar o * pela lista de colunas das tabelas do FROM."),
+                    a("Comentar a linha", "Ctrl+/"),
+                ]),
                 topico("formatar-historico", "Formatar, plano e histórico", vec![
                     t("A varinha formata o SQL (palavras-chave em maiúscula, uma cláusula por linha). Com um trecho selecionado, formata só ele. Ctrl+Z desfaz."),
                     t("O botão do plano mostra o EXPLAIN do comando do cursor (PostgreSQL, MySQL e SQLite): por onde o banco vai ler os dados."),
@@ -107,6 +118,12 @@ fn montar() -> Catalogo {
                     t("Servidor interno com certificado próprio? Ligue o TLS e desligue Conferir o certificado (só criptografa), ou escolha o arquivo da autoridade (CA) da empresa. Se o servidor pede certificado do cliente, escolha o certificado e a chave."),
                     t("Tem o endereço inteiro (postgresql://usuario:senha@servidor:5432/banco)? Cole no campo Servidor: os outros campos se preenchem sozinhos."),
                 ]),
+                topico("ssh", "Túnel SSH", vec![
+                    t("Banco que só aceita conexão de dentro da rede? Ligue Conectar por túnel SSH e preencha o servidor SSH, o usuário e a senha ou a chave privada."),
+                    t("No Servidor do banco vai o endereço visto de dentro do servidor SSH (muitas vezes localhost)."),
+                    t("Na primeira vez, a chave do servidor SSH é anotada no ~/.ssh/known_hosts. Se ela mudar depois, a conexão é recusada: pode ser outro servidor no lugar dele."),
+                    t("Com chave privada, a senha do SSH é a da chave (se ela tiver). A senha fica no cofre do sistema, como a do banco."),
+                ]),
                 topico("sqlite", "SQLite", vec![
                     t("Escolha o arquivo do banco. Se ele não existir, o FeatherDB cria um banco novo e vazio."),
                 ]),
@@ -130,20 +147,32 @@ fn montar() -> Catalogo {
                     t("Botão direito numa tabela: ver os dados, escrever o SELECT com as colunas no editor, contar as linhas ou copiar o nome. Na conexão: conectar, editar e excluir."),
                     t("Criou uma tabela? O botão Atualizar tabelas lê a lista de novo."),
                     t("Muitas tabelas? Escreva parte do nome em Buscar tabela ou coluna, no alto da árvore."),
+                    t("Botão direito numa tabela também importa CSV, renomeia e apaga (mostrando o SQL antes)."),
                 ]),
                 topico("grade", "A grade do resultado", vec![
-                    t("A grade traz até mil linhas e rola leve, porque só desenha o que aparece na tela. Para ver outras, use WHERE, ORDER BY ou LIMIT."),
+                    t("A grade traz mil linhas por vez e rola leve, porque só desenha o que aparece na tela. Tem mais? O botão +1000 linhas busca as próximas."),
                     t("Clique no nome de uma coluna para ordenar (de novo inverte, a terceira volta à ordem do banco). Filtrar linhas esconde as que não têm o texto."),
-                    t("Copiar tudo põe o resultado na área de transferência, pronto para colar no FeatherSheet ou no Excel. Exportar CSV grava um arquivo."),
+                    t("Clique numa célula para ver o valor inteiro no painel da direita (JSON arrumado) e as contas da coluna: soma, média, mínimo, máximo e quantos diferentes."),
+                    t("Botão direito numa célula copia o valor ou a linha como INSERT ou JSON, ou tudo para planilha, INSERT, JSON ou Markdown. Exportar grava CSV, JSON, SQL ou Markdown, pela extensão escolhida."),
                 ]),
                 topico("estrutura", "Estrutura das tabelas", vec![
                     t("A aba Estrutura mostra cada coluna com o tipo, se aceita vazio, o valor padrão e a chave. O lápis edita a coluna e mostra o SQL antes de aplicar."),
+                    t("Embaixo das colunas vêm os índices, as chaves estrangeiras e os gatilhos da tabela, cada um com o SQL dele."),
                     t("A busca da lateral acha tabelas e colunas pelo nome, em todos os bancos abertos; clicar numa coluna abre a estrutura da tabela dela."),
                     t("Para ter a lista de colunas fora do FeatherDB: copie ou exporte as colunas de uma tabela, ou exporte o dicionário do banco inteiro (botão direito no banco ou na conexão)."),
                 ]),
                 topico("editar-dados", "Editar os dados", vec![
                     t("Na tabela aberta com clique duplo (PostgreSQL, MySQL e SQLite, com chave primária), clique duas vezes numa célula para mudar o valor. Enter guarda, Esc desiste e o botão NULL esvazia."),
                     t("As células mudadas ficam marcadas. Salvar mostra os UPDATE antes de gravar; se um falhar, nenhum fica gravado."),
+                    t("Botão direito numa célula: Nova linha acrescenta uma linha vazia no fim; Excluir a linha marca a linha em vermelho. Nada vai para o banco antes de Salvar (DELETE, UPDATE e INSERT juntos, tudo ou nada)."),
+                ]),
+                topico("importar-csv", "Importar CSV", vec![
+                    t("Botão direito na tabela › Importar CSV: escolha o arquivo (vírgula, ponto e vírgula ou tabulação, do Excel ou não) e veja as primeiras linhas."),
+                    t("As colunas do arquivo entram nas colunas da tabela com o mesmo nome. Tudo roda numa transação: se uma linha falhar, nenhuma fica."),
+                ]),
+                topico("diagrama-sessoes", "Diagrama e sessões ativas", vec![
+                    t("Botão direito na conexão ou no banco › Diagrama das tabelas: uma caixa por tabela com as colunas e uma linha de cada chave estrangeira até a tabela que ela aponta."),
+                    t("Sessões ativas (PostgreSQL e MySQL) abre uma aba com quem está conectado e o que está rodando. O comentário no alto da aba diz como derrubar uma sessão."),
                 ]),
                 topico("sql-da-tabela", "O SQL da tabela", vec![
                     t("A aba SQL mostra o CREATE TABLE (ou CREATE VIEW) da tabela aberta, para copiar ou pôr no editor."),

@@ -532,8 +532,22 @@ pub fn conexao_caiu(erro: &str) -> bool {
 }
 
 /// Comando que só lê (SELECT, SHOW, EXPLAIN, consulta do Mongo): pode rodar de novo sem risco.
+/// O comando sem os espaços e comentários do começo (`-- nota` ou `/* … */` antes do DELETE).
+fn inicio(sql: &str) -> &str {
+    let mut s = sql.trim_start();
+    loop {
+        if let Some(r) = s.strip_prefix("--") {
+            s = r.split_once('\n').map_or("", |(_, d)| d).trim_start();
+        } else if let Some(r) = s.strip_prefix("/*") {
+            s = r.split_once("*/").map_or("", |(_, d)| d).trim_start();
+        } else {
+            return s;
+        }
+    }
+}
+
 pub fn so_le(sql: &str) -> bool {
-    let p = sql.trim_start().split(|c: char| !c.is_ascii_alphanumeric() && c != '.').next().unwrap_or("").to_ascii_lowercase();
+    let p = inicio(sql).split(|c: char| !c.is_ascii_alphanumeric() && c != '.').next().unwrap_or("").to_ascii_lowercase();
     let l = sql.to_ascii_lowercase();
     let escreve = ["insert", "update", "delete", "merge", "replace", "drop", "create", "alter"].iter().any(|w| l.contains(w));
     matches!(p.as_str(), "select" | "show" | "explain" | "describe" | "desc" | "values" | "table") || ((p == "with" || p.starts_with("db.")) && !escreve)
@@ -606,13 +620,13 @@ pub fn com_parametros(sql: &str, valores: &[(String, String)]) -> String {
 /// Comando que muda dados ou estrutura (o que uma conexão só leitura barra e uma de produção confirma).
 /// Leitura, SET e controle de transação não contam.
 pub fn muda_dados(sql: &str) -> bool {
-    let p = sql.trim_start().split(|c: char| !c.is_ascii_alphabetic()).next().unwrap_or("").to_ascii_lowercase();
+    let p = inicio(sql).split(|c: char| !c.is_ascii_alphabetic()).next().unwrap_or("").to_ascii_lowercase();
     !so_le(sql) && !matches!(p.as_str(), "set" | "begin" | "start" | "commit" | "rollback" | "end" | "")
 }
 
 /// Comando que muda a estrutura do banco (tabelas, views, funções): a árvore precisa ler o catálogo de novo.
 pub fn muda_estrutura(sql: &str) -> bool {
-    let p = sql.trim_start().split(|c: char| !c.is_ascii_alphabetic()).next().unwrap_or("").to_ascii_lowercase();
+    let p = inicio(sql).split(|c: char| !c.is_ascii_alphabetic()).next().unwrap_or("").to_ascii_lowercase();
     matches!(p.as_str(), "create" | "alter" | "drop" | "rename")
 }
 
@@ -789,6 +803,8 @@ mod testes {
         let v = |n: &str, x: &str| (n.to_owned(), x.to_owned());
         assert_eq!(com_parametros("where a = :id and b = :nome", &[v("id", "7"), v("nome", "O'Neil")]), "where a = 7 and b = 'O''Neil'");
         assert!(muda_dados("insert into t values (1)") && muda_dados("drop table t") && !muda_dados("select 1") && !muda_dados("COMMIT") && !muda_dados("set search_path to x"));
+        // Comentário no começo não esconde o comando.
+        assert!(muda_dados("-- limpa\n/* tudo */ delete from t") && so_le("-- nota\nSELECT 1") && muda_estrutura("/* x */drop table t") && !muda_dados("-- só nota"));
         assert!(muda_estrutura("CREATE VIEW v AS SELECT 1") && muda_estrutura("  drop table t") && !muda_estrutura("select 1"));
     }
 
@@ -936,6 +952,20 @@ mod testes {
         assert_eq!(r.linhas[0][2], None);
         assert_eq!(r.linhas[0][3].as_deref(), Some("ção"));
         assert!(b.executar("select * from tabela_que_nao_existe_featherdb", 1).unwrap_err().contains("tabela_que_nao_existe_featherdb"));
+        // Índice e chave estrangeira de uma tabela temporária.
+        b.executar("create temp table featherdb_filho (id int primary key, pai int references featherdb_teste(id))", 0).unwrap();
+        let t = Tabela { esquema: "pg_temp".into(), nome: "featherdb_filho".into(), ..Default::default() };
+        let d = b.detalhes(&t).unwrap();
+        println!("detalhes: {d:?}");
+        assert!(d.indices.iter().any(|(_, s)| s.contains("UNIQUE")) && d.estrangeiras[0].1.contains("REFERENCES featherdb_teste(id)"));
+        let sessoes = b.executar("select pid, state from pg_stat_activity where backend_type = 'client backend'", 50).unwrap();
+        assert!(!sessoes.linhas.is_empty());
+        // Só leitura: o próprio servidor recusa até criar tabela temporária.
+        let so = Conexao { somente_leitura: true, ..c.clone() };
+        let mut l = so.conectar(&senha).unwrap();
+        assert!(l.executar("select 1", 1).is_ok());
+        let e = l.executar("create temp table featherdb_ro (a int)", 0).unwrap_err();
+        assert!(e.contains("read-only") || e.contains("somente leitura") || e.contains("só leitura"), "{e}");
     }
 
     #[test]

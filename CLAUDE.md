@@ -42,8 +42,8 @@ outro projeto) e `../feather-ui-pelicano/GUIA-JANELAS.md` (ícones só Tabler, c
 - Objetos (`objetos.rs`): `Banco::funcoes`/`definicao` (Postgres pelo `pg_proc` sem as de extensão e de `pg_temp`;
   MySQL pelo `information_schema.routines`); views materializadas do Postgres vêm do `pg_matviews`
   (`Tabela::materializada`). Modelos de view/materializada/função abrem em aba nova (`App::nova_aba_com`).
-  Abrir/salvar `.sql`: `arquivo_sql` por aba (troca junto em `abas::trocar`). O corpo de função do MySQL com
-  `BEGIN … END` não roda pelo editor (o `;` de dentro corta o comando; não há `DELIMITER`).
+  Abrir/salvar `.sql`: `arquivo_sql` por aba (troca junto em `abas::trocar`). `separadores` entende `BEGIN … END`
+  dentro de CREATE TRIGGER/PROCEDURE/FUNCTION (CASE abre nível; END IF/LOOP/WHILE/REPEAT não fecham).
 - `ddl_em`: rodou CREATE/ALTER/DROP/RENAME (`muda_estrutura`) e deu certo → `Msg::Atualizar` daquele banco
   (a resposta passa por `App::executado`). Renomear: `estrutura::sql_renomear`.
 - Disco cheio em 04/11/2026 (o `target/debug` tinha 17 GB): testar com `cargo test --release`, uma pasta só.
@@ -60,3 +60,14 @@ outro projeto) e `../feather-ui-pelicano/GUIA-JANELAS.md` (ícones só Tabler, c
   04/11/2026 no Postgres da rede do usuário). A senha só por variável de ambiente, nunca em arquivo.
 - Visual: editor e resultado em painéis com borda; a faixa do editor mostra a conexão ativa e o Executar.
   Conferir por captura (`pelicano::capture` num teste temporário) antes de entregar.
+- Segurança (`App::rodar`, nesta ordem): parâmetros `:nome` (`featherdb_core::parametros`, diálogo) → só leitura
+  (`muda_dados` bloqueia; no servidor o `conectar` já põe a sessão READ ONLY / `SQLITE_OPEN_READ_ONLY`) → sem WHERE
+  → produção (`PRODUCAO`). `inicio()` pula comentários do começo: `-- x\nDELETE …` não escapa das conferências.
+  Commit manual: `Item.manual`, `Base.transacao`; `rodar_conferido` põe `BEGIN` na frente.
+- Túnel SSH (`featherdb-core/src/tunel.rs`): `russh` com `ring` (sem aws-lc), tokio próprio; known_hosts "accept-new",
+  chave mudada é recusada. `ComTunel` repassa o trait `Banco`. Senha do SSH no cofre (`cofre::ler_ssh`). Campos 16 a 19
+  de `conexoes.txt`. Sem servidor SSH local: só o caminho de erro tem teste.
+- Grade: `celula` (escolhida) abre o painel de valor (`resultado.rs`); linhas novas/a excluir em `Celulas`
+  (SQL na ordem DELETE, UPDATE, INSERT); `limite` + "+1000 linhas". Importar CSV: `featherdb_core::importar` + `importar.rs`.
+- Diagrama ER (`diagrama.rs`): diálogo com `pelicano::canvas`, até 80 tabelas (`colunas` + `detalhes` de cada);
+  as linhas andam só pelos vãos. Sessões ativas: `objetos::sql_sessoes` numa aba nova.
