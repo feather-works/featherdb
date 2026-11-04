@@ -4,7 +4,7 @@ use mysql::{Conn, OptsBuilder, SslOpts, Value};
 
 use crate::{Banco, Conexao, Resultado};
 
-struct My(Conn);
+struct My(Conn, OptsBuilder);
 
 pub(crate) fn conectar(c: &Conexao, senha: &str) -> Result<Box<dyn Banco>, String> {
     let opts = OptsBuilder::new()
@@ -15,7 +15,7 @@ pub(crate) fn conectar(c: &Conexao, senha: &str) -> Result<Box<dyn Banco>, Strin
         .db_name((!c.banco.is_empty()).then(|| c.banco.clone()))
         .tcp_connect_timeout(Some(std::time::Duration::from_secs(15)))
         .ssl_opts(c.tls.then(SslOpts::default));
-    Conn::new(opts).map(|c| Box::new(My(c)) as Box<dyn Banco>).map_err(|e| e.to_string())
+    Conn::new(opts.clone()).map(|c| Box::new(My(c, opts)) as Box<dyn Banco>).map_err(|e| e.to_string())
 }
 
 /// O valor como a pessoa espera ler (o protocolo de texto já manda quase tudo como bytes).
@@ -35,6 +35,16 @@ fn texto(v: Value) -> Option<String> {
 }
 
 impl Banco for My {
+    fn cancelador(&self) -> Option<crate::Cancelar> {
+        // O MySQL para a consulta de outra conexão: KILL QUERY com o número desta.
+        let (id, opts) = (self.0.connection_id(), self.1.clone());
+        Some(std::sync::Arc::new(move || {
+            if let Ok(mut c) = Conn::new(opts.clone()) {
+                let _ = c.query_drop(format!("KILL QUERY {id}"));
+            }
+        }))
+    }
+
     fn executar(&mut self, sql: &str, limite: usize) -> Result<Resultado, String> {
         let mut consulta = self.0.query_iter(sql).map_err(|e| e.to_string())?;
         let mut r = Resultado::default();

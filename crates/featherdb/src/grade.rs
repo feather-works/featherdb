@@ -42,6 +42,8 @@ const LOGICO: &str = "M8 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M2 12a6 6 0 0 1 6 -
 const JSON: &str = "M7 4a2 2 0 0 0 -2 2v3a2 3 0 0 1 -2 3a2 3 0 0 1 2 3v3a2 2 0 0 0 2 2M17 4a2 2 0 0 1 2 2v3a2 3 0 0 0 2 3a2 3 0 0 0 -2 3v3a2 2 0 0 1 -2 2";
 const BINARIO: &str = "M14 3v4a1 1 0 0 0 1 1h4M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2z";
 const OUTRO: &str = "M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M12 12m-8 0a8 8 0 1 0 16 0a8 8 0 1 0 -16 0";
+const SOBE: &str = "M12 5v14M18 11l-6 -6M6 11l6 -6";
+const DESCE: &str = "M12 5v14M18 13l-6 6M6 13l6 6";
 const CHAVE: &str = "M16.555 3.843l3.602 3.602a2.877 2.877 0 0 1 0 4.069l-2.643 2.643a2.877 2.877 0 0 1 -4.069 0l-.301 -.301l-6.558 6.558a2 2 0 0 1 -1.239 .578l-.175 .008h-1.172a1 1 0 0 1 -.993 -.883l-.007 -.117v-1.172a2 2 0 0 1 .467 -1.284l.119 -.13l.414 -.414h2v-2h2v-2l2.144 -2.144l-.301 -.301a2.877 2.877 0 0 1 0 -4.069l2.643 -2.643a2.877 2.877 0 0 1 4.069 0zM15 9h.01";
 
 /// O ícone da família do tipo (números, texto, data, sim/não, JSON); a chave primária ganha a chave na cor de destaque.
@@ -61,9 +63,35 @@ pub(crate) fn icone_tipo(tipo: &str, chave: bool, tamanho: f32) -> pelicano::Svg
     crate::icone_tabler(caminho, tamanho).color(COR_TEXTO_MUTED())
 }
 
+/// As linhas na ordem da tela: só as que têm `filtro` em alguma célula, ordenadas pela coluna
+/// escolhida (números como números, texto sem diferença de maiúscula; NULL primeiro).
+pub(crate) fn ordem(r: &Resultado, ordenacao: Option<(usize, bool)>, filtro: &str) -> Vec<usize> {
+    let filtro = filtro.trim().to_lowercase();
+    let mut v: Vec<usize> = (0..r.linhas.len())
+        .filter(|&i| filtro.is_empty() || r.linhas[i].iter().flatten().any(|c| c.to_lowercase().contains(&filtro)))
+        .collect();
+    if let Some((c, crescente)) = ordenacao {
+        let valor = |i: usize| r.linhas[i].get(c).cloned().flatten();
+        v.sort_by(|&a, &b| {
+            let o = match (valor(a), valor(b)) {
+                (None, None) => std::cmp::Ordering::Equal,
+                (None, _) => std::cmp::Ordering::Less,
+                (_, None) => std::cmp::Ordering::Greater,
+                (Some(x), Some(y)) => match (x.trim().parse::<f64>(), y.trim().parse::<f64>()) {
+                    (Ok(x), Ok(y)) => x.total_cmp(&y),
+                    _ => x.to_lowercase().cmp(&y.to_lowercase()),
+                },
+            };
+            if crescente { o } else { o.reverse() }
+        });
+    }
+    v
+}
+
 /// A grade do resultado. Monta só as linhas e colunas que aparecem na tela (`pos` e `vista` vêm da
 /// própria rolagem): mil linhas rolam tão leve quanto dez. O cabeçalho desce junto e fica sempre no topo.
-pub(crate) fn view(r: &Resultado, pos: (f32, f32), vista: (f32, f32), versao: u64) -> Element<'_, Msg> {
+/// `linhas` é a ordem da tela ([`ordem`]); clicar no nome da coluna ordena por ela.
+pub(crate) fn view<'a>(r: &'a Resultado, linhas: &[usize], ordenacao: Option<(usize, bool)>, pos: (f32, f32), vista: (f32, f32), versao: u64) -> Element<'a, Msg> {
     let larg = larguras(r);
     // Início de cada coluna (com a linha de 1 px entre elas), depois da coluna do número.
     let mut pre = vec![0.0f32];
@@ -73,7 +101,7 @@ pub(crate) fn view(r: &Resultado, pos: (f32, f32), vista: (f32, f32), versao: u6
     let total_w = LARGURA_NUM + pre.last().copied().unwrap_or(0.0);
     let (x, y) = pos;
     let (vw, vh) = (vista.0.max(400.0), vista.1.max(200.0));
-    let n = r.linhas.len();
+    let n = linhas.len();
     let ini = ((y - ALTURA_CABECALHO).max(0.0) / ALTURA_LINHA) as usize;
     let fim = (ini + (vh / ALTURA_LINHA) as usize + 2).min(n);
     let ini = ini.min(fim);
@@ -105,8 +133,8 @@ pub(crate) fn view(r: &Resultado, pos: (f32, f32), vista: (f32, f32), versao: u6
         r.push(Space::new(dir, h)).into()
     };
 
-    let linhas = (ini..fim).map(|i| {
-        let l = &r.linhas[i];
+    let faixas = (ini..fim).map(|i| {
+        let l = &r.linhas[linhas[i]];
         let num = celula(text((i + 1).to_string()).size(11.5).color(COR_TEXTO_MUTED()).into(), LARGURA_NUM, ALTURA_LINHA, true);
         let cel = |c: usize| {
             let t: Element<'static, Msg> = match l.get(c).and_then(|v| v.as_deref()) {
@@ -124,7 +152,7 @@ pub(crate) fn view(r: &Resultado, pos: (f32, f32), vista: (f32, f32), versao: u6
     });
     let corpo = column(
         std::iter::once(Space::new(total_w, ALTURA_CABECALHO + 1.0 + ini as f32 * ALTURA_LINHA).into())
-            .chain(linhas)
+            .chain(faixas)
             .chain([Space::new(total_w, (n - fim) as f32 * ALTURA_LINHA).into()])
             .collect::<Vec<Element<'static, Msg>>>(),
     );
@@ -136,9 +164,13 @@ pub(crate) fn view(r: &Resultado, pos: (f32, f32), vista: (f32, f32), versao: u6
         if !tipo.is_empty() {
             nome = nome.push(icone_tipo(&tipo, false, 14.0));
         }
-        let nome = nome.push(text(r.colunas[c].clone()).size(12.5).font(Font::SEMIBOLD).no_wrap().ellipsis());
+        let mut nome = nome.push(text(r.colunas[c].clone()).size(12.5).font(Font::SEMIBOLD).no_wrap().ellipsis());
+        if let Some((_, crescente)) = ordenacao.filter(|(o, _)| *o == c) {
+            nome = nome.push(crate::icone_tabler(if crescente { SOBE } else { DESCE }, 13.0).color(COR_AZUL_ACENTO()));
+        }
         let conteudo: Element<'static, Msg> = column![nome, text(tipo).size(11).font(Font::MONO).color(COR_TEXTO_MUTED()).no_wrap().ellipsis()].spacing(2).into();
-        celula(conteudo, larg[c], ALTURA_CABECALHO, false)
+        let botao = pelicano::button(celula(conteudo, larg[c], ALTURA_CABECALHO, false)).padding(0).style(estilo_botao_pequeno(false)).on_press(Msg::Ordenar(c));
+        pelicano::tooltip(botao, crate::idioma::tr("Clique para ordenar"), pelicano::TooltipPosition::Bottom).padding([4, 8]).style(estilo_dica).into()
     };
     let cab = column![
         container(faixa(num, ALTURA_CABECALHO, &cab_cel)).width(total_w).height(ALTURA_CABECALHO).style(|_| Style::default().background(COR_PAINEL_FAIXA())),
@@ -194,12 +226,12 @@ pub(crate) fn cores_sql(linha: &str, chave: Color, apagado: Color) -> Vec<(std::
 
 /// O resultado como texto separado (cabeçalho + linhas). Campo com separador, aspas ou quebra
 /// de linha vai entre aspas, como o Excel e o FeatherSheet esperam.
-pub(crate) fn separado(r: &Resultado, sep: char) -> String {
+pub(crate) fn separado(r: &Resultado, linhas: &[usize], sep: char) -> String {
     let campo = |s: &str| {
         if s.contains([sep, '"', '\n', '\r']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_owned() }
     };
     let mut saida = r.colunas.iter().map(|c| campo(c)).collect::<Vec<_>>().join(&sep.to_string());
-    for l in &r.linhas {
+    for l in linhas.iter().map(|&i| &r.linhas[i]) {
         saida.push_str("\r\n");
         saida.push_str(&l.iter().map(|v| v.as_deref().map_or(String::new(), campo)).collect::<Vec<_>>().join(&sep.to_string()));
     }
@@ -225,8 +257,18 @@ mod testes {
     }
 
     #[test]
+    fn ordena_numero_como_numero_e_filtra() {
+        let l = |v: &[Option<&str>]| v.iter().map(|x| x.map(str::to_owned)).collect::<Vec<_>>();
+        let r = Resultado { colunas: vec!["n".into(), "nome".into()], linhas: vec![l(&[Some("10"), Some("Ana")]), l(&[Some("9"), Some("bia")]), l(&[None, Some("Caio")])], ..Default::default() };
+        assert_eq!(ordem(&r, Some((0, true)), ""), vec![2, 1, 0]);
+        assert_eq!(ordem(&r, Some((0, false)), ""), vec![0, 1, 2]);
+        assert_eq!(ordem(&r, Some((1, false)), ""), vec![2, 1, 0]);
+        assert_eq!(ordem(&r, None, "BI"), vec![1]);
+    }
+
+    #[test]
     fn csv_com_aspas_e_nulo() {
         let r = Resultado { colunas: vec!["a".into(), "b".into()], linhas: vec![vec![Some("x,y".into()), None], vec![Some("diz \"oi\"".into()), Some("2".into())]], ..Default::default() };
-        assert_eq!(separado(&r, ','), "a,b\r\n\"x,y\",\r\n\"diz \"\"oi\"\"\",2\r\n");
+        assert_eq!(separado(&r, &[0, 1], ','), "a,b\r\n\"x,y\",\r\n\"diz \"\"oi\"\"\",2\r\n");
     }
 }

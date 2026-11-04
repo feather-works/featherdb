@@ -6,6 +6,7 @@ mod config;
 mod estrutura_ui;
 mod formulario;
 mod grade;
+mod historico;
 mod idioma;
 
 use std::collections::{HashMap, HashSet};
@@ -85,6 +86,7 @@ enum Msg {
     Editar(u64),
     Excluir(u64),
     ConfirmarExclusao(bool),
+    ConfirmarPerigo(bool),
     Filtro(String),
     Form(Campo),
     Senha(String),
@@ -123,8 +125,15 @@ enum Msg {
     EditorMudou,
     Executar,
     ExecutarTudo,
-    Executado(Result<Resultado, String>, Duration),
+    /// O número da rodada (resposta de rodada abandonada pelo Parar é ignorada), o resultado, o tempo
+    /// e se a conexão tinha caído e foi refeita.
+    Executado(u64, Result<Resultado, String>, Duration, bool),
+    Parar,
+    Historico(Option<String>),
+    UsarHistorico(String),
     Rolou(f32, f32, f32, f32),
+    Ordenar(usize),
+    FiltroGrade(String),
     Copiar,
     ExportarCsv,
     Exportado(Option<Result<std::path::PathBuf, String>>),
@@ -144,6 +153,10 @@ struct App {
     vista: (f32, f32),
     /// Sobe a cada resultado novo: a rolagem da grade volta ao começo.
     versao_resultado: u64,
+    /// Ordem da grade: a coluna e se é crescente; o filtro; e as linhas que sobram, na ordem da tela.
+    ordenacao: Option<(usize, bool)>,
+    filtro_grade: String,
+    visiveis: Vec<usize>,
     /// A tabela aberta no painel de baixo (abas Dados e Estrutura).
     tabela_aberta: Option<(Alvo, Tabela)>,
     aba: Aba,
@@ -155,6 +168,13 @@ struct App {
     /// Pedindo a senha para conectar: a conexão e o que já foi digitado.
     pedir_senha: Option<(u64, String)>,
     excluir: Option<u64>,
+    /// Comandos esperando confirmação (DELETE/UPDATE sem WHERE) e qual dos dois é.
+    perigo: Option<(Vec<String>, &'static str)>,
+    /// Sobe a cada consulta: a resposta de uma consulta abandonada não sobrescreve a atual.
+    rodada: u64,
+    cancelar: Option<featherdb_core::Cancelar>,
+    /// A janela do histórico aberta, com o texto da busca.
+    historico: Option<(String, Vec<historico::Entrada>)>,
     /// O texto do filtro da árvore de tabelas.
     filtro: String,
     /// O menu do botão direito aberto, e onde.
@@ -226,6 +246,9 @@ impl App {
             rolagem: (0.0, 0.0),
             vista: (900.0, 400.0),
             versao_resultado: 0,
+            ordenacao: None,
+            filtro_grade: String::new(),
+            visiveis: Vec::new(),
             tabela_aberta: None,
             aba: Aba::Dados,
             edicao: None,
@@ -234,6 +257,10 @@ impl App {
             form: None,
             pedir_senha: None,
             excluir: None,
+            perigo: None,
+            rodada: 0,
+            cancelar: None,
+            historico: None,
             filtro: String::new(),
             menu: None,
             tamanho: pelicano::Size::new(1280.0, 800.0),
@@ -327,6 +354,11 @@ impl App {
         em_segundo_plano(move || c.conectar(&senha).map(|b| Arc::new(Mutex::new(b))), move |r| Msg::Conectado((id, Some(nome)), r))
     }
 
+    /// Refaz a ordem da grade (depois de ordenar, filtrar ou chegar resultado novo).
+    fn reordenar(&mut self) {
+        self.visiveis = self.resultado.as_ref().map(|r| grade::ordem(r, self.ordenacao, &self.filtro_grade)).unwrap_or_default();
+    }
+
     fn base(&self, alvo: &Alvo) -> Option<&Base> {
         let item = self.itens.iter().find(|i| i.id == alvo.0)?;
         match &alvo.1 {
@@ -357,8 +389,19 @@ impl App {
         em_segundo_plano(move || banco.lock().map_err(|_| tr("A conexão travou; desconecte e conecte de novo.").to_owned())?.bancos(), move |r| Msg::Bancos(id, r))
     }
 
-    /// Roda os comandos na conexão ativa; fica o resultado do último.
+    /// Roda os comandos na conexão ativa; fica o resultado do último. DELETE ou UPDATE sem WHERE
+    /// pede confirmação antes (um esquecimento apagaria a tabela inteira).
     fn rodar(&mut self, comandos: Vec<String>) -> Task<Msg> {
+        if let Some(c) = comandos.iter().find_map(|c| featherdb_core::sem_where(c)) {
+            if !self.executando {
+                self.perigo = Some((comandos, c));
+            }
+            return Task::none();
+        }
+        self.rodar_conferido(comandos)
+    }
+
+    fn rodar_conferido(&mut self, comandos: Vec<String>) -> Task<Msg> {
         if comandos.is_empty() || self.executando {
             return Task::none();
         }
@@ -376,23 +419,51 @@ impl App {
         self.executando = true;
         self.erro = None;
         self.gravar_rascunho();
+        self.rodada += 1;
+        let rodada = self.rodada;
+        // O cancelador sai antes de a consulta pegar a conexão (enquanto roda, ela fica ocupada).
+        self.cancelar = banco.try_lock().ok().and_then(|b| b.cancelador());
+        let item = self.itens.iter().find(|i| i.id == alvo.0);
+        let rotulo = item.map(|i| i.conexao.rotulo()).unwrap_or_default();
+        historico::anotar(&comandos, &match &alvo.1 {
+            Some(n) => format!("{rotulo} / {n}"),
+            None => rotulo,
+        });
+        let conexao = item.map(|i| Conexao { banco: alvo.1.clone().unwrap_or_else(|| i.conexao.banco.clone()), ..i.conexao.clone() });
+        let senha = item.and_then(|i| i.senha.clone()).unwrap_or_default();
         em_segundo_plano(
             move || {
                 let inicio = Instant::now();
                 let mut b = match banco.lock() {
                     Ok(b) => b,
-                    Err(_) => return (Err(tr("A conexão travou; desconecte e conecte de novo.").to_owned()), inicio.elapsed()),
+                    Err(_) => return (Err(tr("A conexão travou; desconecte e conecte de novo.").to_owned()), inicio.elapsed(), false),
                 };
                 let mut r = Ok(Resultado::default());
-                for c in &comandos {
+                let mut nova = false;
+                for (i, c) in comandos.iter().enumerate() {
                     r = b.executar(c, LIMITE_LINHAS);
+                    // A conexão caiu (servidor reiniciou, ficou parada tempo demais): conecta de novo uma vez.
+                    // Leitura roda de novo; comando que muda dados não, porque pode ter chegado a rodar.
+                    if let (Err(e), Some(con), false) = (&r, &conexao, nova) {
+                        if featherdb_core::conexao_caiu(e) {
+                            if let Ok(novo) = con.conectar(&senha) {
+                                *b = novo;
+                                nova = true;
+                                r = if featherdb_core::so_le(c) && i == 0 {
+                                    b.executar(c, LIMITE_LINHAS)
+                                } else {
+                                    Err(tr("A conexão tinha caído e foi refeita. O comando não rodou: confira e rode de novo.").to_owned())
+                                };
+                            }
+                        }
+                    }
                     if r.is_err() {
                         break;
                     }
                 }
-                (r, inicio.elapsed())
+                (r, inicio.elapsed(), nova)
             },
-            |(r, t)| Msg::Executado(r, t),
+            move |(r, t, nova)| Msg::Executado(rodada, r, t, nova),
         )
     }
 }
@@ -446,6 +517,12 @@ impl pelicano::App for App {
                     self.gravar_conexoes();
                 }
                 self.excluir = None;
+            }
+            Msg::ConfirmarPerigo(sim) => {
+                if let (true, Some((comandos, _))) = (sim, self.perigo.take()) {
+                    return self.rodar_conferido(comandos);
+                }
+                self.perigo = None;
             }
             Msg::Filtro(f) => {
                 self.filtro = f;
@@ -661,6 +738,57 @@ impl pelicano::App for App {
                     }
                 }
             }
+            Msg::Parar => {
+                if !self.executando {
+                    return Task::none();
+                }
+                match self.cancelar.take() {
+                    // O banco interrompe e a resposta chega como erro ("cancelado").
+                    Some(c) => {
+                        self.aviso = tr("Parando a consulta…").to_owned();
+                        return em_segundo_plano(move || c(), |_| Msg::FecharMenu);
+                    }
+                    // Driver sem cancelamento (ODBC, MongoDB): larga a conexão ocupada e abre outra.
+                    None => {
+                        self.rodada += 1;
+                        self.executando = false;
+                        self.erro = Some(tr("Consulta parada. A conexão foi refeita.").to_owned());
+                        let Some(alvo) = self.ativa.clone() else { return Task::none() };
+                        if let Some(b) = self.base_mut(&alvo) {
+                            b.banco = None;
+                        }
+                        return match alvo.1 {
+                            None => self.conectar(alvo.0),
+                            Some(n) => self.abrir_banco(alvo.0, n),
+                        };
+                    }
+                }
+            }
+            Msg::Historico(h) => {
+                self.historico = match (h, self.historico.take()) {
+                    (None, _) => None,
+                    (Some(b), Some((_, lista))) => Some((b, lista)),
+                    (Some(b), None) => Some((b, historico::ler())),
+                }
+            }
+            Msg::UsarHistorico(sql) => {
+                self.historico = None;
+                self.editor.insert(&format!("{sql}\n"));
+                self.gravar_rascunho();
+            }
+            Msg::Ordenar(c) => {
+                // Crescente, decrescente, e de volta à ordem do banco.
+                self.ordenacao = match self.ordenacao {
+                    Some((o, true)) if o == c => Some((c, false)),
+                    Some((o, false)) if o == c => None,
+                    _ => Some((c, true)),
+                };
+                self.reordenar();
+            }
+            Msg::FiltroGrade(f) => {
+                self.filtro_grade = f;
+                self.reordenar();
+            }
             Msg::Rolou(x, y, w, h) => {
                 self.rolagem = (x, y);
                 self.vista = (w, h);
@@ -731,7 +859,14 @@ impl pelicano::App for App {
                 self.aba = Aba::Dados;
                 return self.rodar(featherdb_core::dividir(&self.editor.text()));
             }
-            Msg::Executado(r, t) => {
+            Msg::Executado(rodada, r, t, nova) => {
+                if rodada != self.rodada {
+                    return Task::none();
+                }
+                if nova {
+                    self.aviso = tr("A conexão tinha caído e foi refeita.").to_owned();
+                }
+                self.cancelar = None;
                 self.executando = false;
                 self.tempo = Some(t);
                 self.versao_resultado += 1;
@@ -752,6 +887,9 @@ impl pelicano::App for App {
                             return self.carregar_colunas(alvo, t, false);
                         }
                         self.resultado = Some(r);
+                        self.ordenacao = None;
+                        self.filtro_grade.clear();
+                        self.reordenar();
                     }
                     Err(e) => {
                         self.recarregar = None;
@@ -762,16 +900,16 @@ impl pelicano::App for App {
             }
             Msg::Copiar => {
                 if let Some(r) = &self.resultado {
-                    let texto = grade::separado(r, '\t');
+                    let texto = grade::separado(r, &self.visiveis, '\t');
                     self.aviso = match arboard::Clipboard::new().and_then(|mut c| c.set_text(texto)) {
-                        Ok(()) => trf("{} linhas copiadas (cole na planilha).", &[&r.linhas.len()]),
+                        Ok(()) => trf("{} linhas copiadas (cole na planilha).", &[&self.visiveis.len()]),
                         Err(e) => trf("Não foi possível copiar: {}", &[&e]),
                     };
                 }
             }
             Msg::ExportarCsv => {
                 let Some(r) = &self.resultado else { return Task::none() };
-                let csv = grade::separado(r, ',');
+                let csv = grade::separado(r, &self.visiveis, ',');
                 return Task::perform(
                     async move {
                         let arq = rfd::AsyncFileDialog::new().add_filter("CSV", &["csv"]).set_file_name("resultado.csv").save_file().await?;
@@ -815,8 +953,12 @@ impl pelicano::App for App {
         if self.edicao.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::Edicao(CampoColuna::Cancelar));
         }
-        if self.pedir_senha.is_some() || self.form.is_some() || self.excluir.is_some() {
+        if self.historico.is_some() {
+            return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::Historico(None));
+        }
+        if self.pedir_senha.is_some() || self.form.is_some() || self.excluir.is_some() || self.perigo.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then(|| match () {
+                _ if self.perigo.is_some() => Msg::ConfirmarPerigo(false),
                 _ if self.pedir_senha.is_some() => Msg::ConfirmarSenha(false),
                 _ if self.excluir.is_some() => Msg::ConfirmarExclusao(false),
                 _ => Msg::Form(Campo::Cancelar),
@@ -846,6 +988,9 @@ impl pelicano::App for App {
         if self.edicao.is_some() {
             return self.view_edicao(janela);
         }
+        if self.historico.is_some() {
+            return self.view_historico(janela);
+        }
         if let Some(f) = &self.form {
             return f.view().sobre(janela);
         }
@@ -861,6 +1006,22 @@ impl pelicano::App for App {
                 .ao_fechar(Msg::ConfirmarSenha(false))
                 .secundario(tr("Cancelar"), Some(Msg::ConfirmarSenha(false)))
                 .primario(tr("Conectar"), Some(Msg::ConfirmarSenha(true)))
+                .sobre(janela);
+        }
+        if let Some((comandos, palavra)) = &self.perigo {
+            let sql = comandos.iter().find(|c| featherdb_core::sem_where(c).is_some()).map_or("", String::as_str);
+            let previa: String = sql.chars().take(300).collect();
+            let corpo = column![
+                text(trf("Este {} não tem WHERE: vale para todas as linhas da tabela.", &[palavra])).size(13),
+                container(text(previa).size(12).font(Font::MONO)).padding(10).width(Length::FILL).style(|_| Style::default().background(COR_PAINEL_FAIXA()).border(Border::rounded(6.0))),
+            ]
+            .spacing(10);
+            return feather_ui::dialogo::Dialogo::new(tr("Mexer na tabela inteira?"), corpo)
+                .icone("alert-triangle")
+                .largura(480.0)
+                .ao_fechar(Msg::ConfirmarPerigo(false))
+                .secundario(tr("Cancelar"), Some(Msg::ConfirmarPerigo(false)))
+                .primario(tr("Rodar mesmo assim"), Some(Msg::ConfirmarPerigo(true)))
                 .sobre(janela);
         }
         if let Some(id) = self.excluir {
@@ -885,6 +1046,7 @@ fn atalho(key: &Key, m: Modifiers) -> Option<Msg> {
         Key::Named(NamedKey::Enter) if m.control_key() => Some(Msg::Executar),
         Key::Named(NamedKey::F5) => Some(Msg::ExecutarTudo),
         Key::Character(c) if m.alt_key() && c.eq_ignore_ascii_case("x") => Some(Msg::ExecutarTudo),
+        Key::Character(c) if m.control_key() && c.eq_ignore_ascii_case("h") => Some(Msg::Historico(Some(String::new()))),
         _ => None,
     }
 }
@@ -1130,14 +1292,21 @@ impl App {
             }
             None => text(tr("Nenhuma conexão escolhida")).size(13).color(COR_TEXTO_MUTED()).into(),
         };
+        // Rodando, o Executar vira Parar.
+        let (icone, rotulo, msg, dica) = if self.executando {
+            ("player-stop", tr("Parar"), Msg::Parar, tr("Parar a consulta"))
+        } else {
+            ("player-play", tr("Executar"), Msg::Executar, tr("Executar o comando do cursor (Ctrl+Enter)"))
+        };
         let executar = button(
-            row![feather_ui::icones::icone_traco("player-play", 15.0).color(COR_ACENTO_TEXTO(COR_AZUL_ACENTO())), text(tr("Executar")).size(13).font(Font::SEMIBOLD)]
+            row![feather_ui::icones::icone_traco(icone, 15.0).color(COR_ACENTO_TEXTO(COR_AZUL_ACENTO())), text(rotulo).size(13).font(Font::SEMIBOLD)]
                 .spacing(6)
                 .align(Align::Center),
         )
         .padding([6, 14])
         .style(estilo_botao_primario)
-        .on_press_maybe(pode.then_some(Msg::Executar));
+        .on_press(msg);
+        let historico = acao_pequena(feather_ui::icones::icone_traco("history", 15.0), tr("Histórico de consultas (Ctrl+H)"), Some(Msg::Historico(Some(String::new()))));
         let script = button(row![icone_tabler(EXECUTAR_TUDO, 15.0), text(tr("Script")).size(13)].spacing(6).align(Align::Center))
             .padding([6, 12])
             .style(estilo_botao_secundario)
@@ -1145,8 +1314,9 @@ impl App {
         row![
             onde,
             horizontal_space(),
+            historico,
             tooltip(script, tr("Executar o script inteiro (Alt+X)"), TooltipPosition::Bottom).padding([4, 8]).style(estilo_dica),
-            tooltip(executar, tr("Executar o comando do cursor (Ctrl+Enter)"), TooltipPosition::Bottom).padding([4, 8]).style(estilo_dica),
+            tooltip(executar, dica, TooltipPosition::Bottom).padding([4, 8]).style(estilo_dica),
         ]
         .spacing(8)
         .align(Align::Center)
@@ -1198,9 +1368,14 @@ impl App {
         let Some(r) = self.resultado.as_ref().filter(|r| !r.colunas.is_empty() && !self.executando && self.erro.is_none()) else {
             return barra.push(horizontal_space());
         };
-        let contagem = if r.cortado { trf("Primeiras {} linhas", &[&r.linhas.len()]) } else { trf("{} linhas", &[&r.linhas.len()]) };
+        let contagem = match () {
+            _ if self.visiveis.len() < r.linhas.len() => trf("{} de {} linhas", &[&self.visiveis.len(), &r.linhas.len()]),
+            _ if r.cortado => trf("Primeiras {} linhas", &[&r.linhas.len()]),
+            _ => trf("{} linhas", &[&r.linhas.len()]),
+        };
         let tempo = self.tempo.map_or(String::new(), |t| trf("{} ms", &[&t.as_millis()]));
-        barra = barra.push(chip(contagem)).push(chip(tempo)).push(horizontal_space());
+        let filtro = pelicano::text_input(tr("Filtrar linhas"), &self.filtro_grade).on_input(Msg::FiltroGrade).size(12.5).padding([4, 8]).width(180);
+        barra = barra.push(chip(contagem)).push(chip(tempo)).push(horizontal_space()).push(filtro);
         barra
             .push(acao_pequena(feather_ui::icones::icone_traco("copy", 15.0), tr("Copiar tudo (cola na planilha)"), Some(Msg::Copiar)))
             .push(acao_pequena(feather_ui::icones::icone_traco("file-export", 15.0), tr("Exportar CSV"), Some(Msg::ExportarCsv)))
@@ -1223,7 +1398,7 @@ impl App {
             let n = r.afetadas.unwrap_or(0);
             return vazio("check", tr("Pronto"), &trf("{} linha(s) afetada(s).", &[&n]));
         }
-        grade::view(r, self.rolagem, self.vista, self.versao_resultado)
+        grade::view(r, &self.visiveis, self.ordenacao, self.rolagem, self.vista, self.versao_resultado)
     }
 
     fn rodape(&self) -> Element<'_, Msg> {

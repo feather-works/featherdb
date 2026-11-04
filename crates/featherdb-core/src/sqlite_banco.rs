@@ -26,6 +26,11 @@ fn texto(v: ValueRef<'_>) -> Option<String> {
 }
 
 impl Banco for Lite {
+    fn cancelador(&self) -> Option<crate::Cancelar> {
+        let h = self.0.get_interrupt_handle();
+        Some(std::sync::Arc::new(move || h.interrupt()))
+    }
+
     fn executar(&mut self, sql: &str, limite: usize) -> Result<Resultado, String> {
         let erro = |e: rusqlite::Error| e.to_string();
         let comandos = crate::dividir(sql);

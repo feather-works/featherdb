@@ -230,8 +230,16 @@ pub(crate) fn literal(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
+/// Cancela a consulta que está rodando, de outra thread (a conexão fica ocupada enquanto roda).
+pub type Cancelar = std::sync::Arc<dyn Fn() + Send + Sync>;
+
 /// Uma conexão aberta.
 pub trait Banco: Send {
+    /// Como parar a consulta em andamento; `None` quando o driver não sabe (aí a interface abandona a conexão).
+    fn cancelador(&self) -> Option<Cancelar> {
+        None
+    }
+
     /// Roda o SQL e traz até `limite` linhas.
     fn executar(&mut self, sql: &str, limite: usize) -> Result<Resultado, String>;
 
@@ -341,6 +349,67 @@ pub fn dividir(texto: &str) -> Vec<String> {
     saida
 }
 
+/// Um `DELETE` ou `UPDATE` sem `WHERE` (mexe na tabela inteira): devolve a palavra do comando.
+/// Comentários e textos entre aspas não contam (`-- where` não salva ninguém).
+pub fn sem_where(sql: &str) -> Option<&'static str> {
+    let b = sql.as_bytes();
+    let mut limpo = String::with_capacity(sql.len());
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            q @ (b'\'' | b'"' | b'`') => {
+                i += 1;
+                while i < b.len() && b[i] != q {
+                    i += 1;
+                }
+                limpo.push(' ');
+            }
+            b'-' if b.get(i + 1) == Some(&b'-') => {
+                while i < b.len() && b[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'/' if b.get(i + 1) == Some(&b'*') => {
+                i += 2;
+                while i + 1 < b.len() && !(b[i] == b'*' && b[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 1;
+            }
+            c => limpo.push(if c.is_ascii_alphanumeric() || c == b'_' { c.to_ascii_lowercase() as char } else { ' ' }),
+        }
+        i += 1;
+    }
+    let palavras: Vec<&str> = limpo.split_whitespace().collect();
+    // `WITH x AS (...) DELETE ...`: vale o primeiro DELETE/UPDATE depois do WITH.
+    let comando = match palavras.first() {
+        Some(&"with") => palavras.iter().find(|p| matches!(**p, "delete" | "update")).copied(),
+        p => p.copied(),
+    }?;
+    let tem_where = palavras.contains(&"where");
+    match comando {
+        "delete" if !tem_where => Some("DELETE"),
+        "update" if !tem_where => Some("UPDATE"),
+        _ => None,
+    }
+}
+
+/// O erro diz que a conexão caiu (servidor reiniciou, rede piscou, ficou parada tempo demais)?
+pub fn conexao_caiu(erro: &str) -> bool {
+    let e = erro.to_lowercase();
+    ["connection closed", "broken pipe", "connection reset", "server closed the connection", "lost connection", "gone away", "connection refused", "não conectado", "end of file"]
+        .iter()
+        .any(|p| e.contains(p))
+}
+
+/// Comando que só lê (SELECT, SHOW, EXPLAIN, consulta do Mongo): pode rodar de novo sem risco.
+pub fn so_le(sql: &str) -> bool {
+    let p = sql.trim_start().split(|c: char| !c.is_ascii_alphanumeric() && c != '.').next().unwrap_or("").to_ascii_lowercase();
+    let l = sql.to_ascii_lowercase();
+    let escreve = ["insert", "update", "delete", "merge", "replace", "drop", "create", "alter"].iter().any(|w| l.contains(w));
+    matches!(p.as_str(), "select" | "show" | "explain" | "describe" | "desc" | "values" | "table") || ((p == "with" || p.starts_with("db.")) && !escreve)
+}
+
 /// Posição (em bytes) de cada `;` que separa comandos.
 fn separadores(texto: &str) -> Vec<usize> {
     let b = texto.as_bytes();
@@ -446,6 +515,30 @@ mod testes {
     use super::*;
 
     #[test]
+    fn reconhece_conexao_caida_e_leitura() {
+        assert!(conexao_caiu("connection closed"));
+        assert!(conexao_caiu("MySQL server has gone away"));
+        assert!(!conexao_caiu("ERROR: relation \"x\" does not exist"));
+        assert!(so_le("  select 1"));
+        assert!(so_le("WITH a AS (SELECT 1) SELECT * FROM a"));
+        assert!(so_le("db.pedidos.find({})"));
+        assert!(!so_le("update t set a = 1"));
+        assert!(!so_le("WITH x AS (SELECT 1) DELETE FROM t"));
+        assert!(!so_le("db.pedidos.deleteMany({})"));
+    }
+
+    #[test]
+    fn avisa_delete_e_update_sem_where() {
+        assert_eq!(sem_where("DELETE FROM pedidos"), Some("DELETE"));
+        assert_eq!(sem_where("update t set a = 'where' -- where"), Some("UPDATE"));
+        assert_eq!(sem_where("WITH x AS (SELECT 1) DELETE FROM t"), Some("DELETE"));
+        assert_eq!(sem_where("delete from t where id = 1"), None);
+        assert_eq!(sem_where("UPDATE t SET a = 1\nWHERE id = 2"), None);
+        assert_eq!(sem_where("SELECT * FROM t"), None);
+        assert_eq!(sem_where("/* x */ delete from t"), Some("DELETE"));
+    }
+
+    #[test]
     fn divide_respeitando_aspas_e_comentarios() {
         let sql = "select 'a;b';\n-- nada; aqui\nselect 2 /* ; */;\n\n";
         assert_eq!(dividir(sql), vec!["select 'a;b'", "-- nada; aqui\nselect 2 /* ; */"]);
@@ -534,6 +627,20 @@ mod testes {
         assert_eq!(identificador("clientes", Tipo::Postgres), "clientes");
         assert_eq!(identificador("Clientes", Tipo::Postgres), "\"Clientes\"");
         assert_eq!(identificador("a`b", Tipo::MySql), "`a``b`");
+    }
+
+    #[test]
+    fn sqlite_para_a_consulta_no_meio() {
+        let c = Conexao { caminho: ":memory:".into(), ..Conexao::nova(Tipo::Sqlite) };
+        let mut b = c.conectar("").unwrap();
+        let parar = b.cancelador().unwrap();
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            parar();
+        });
+        let r = b.executar("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n) SELECT count(*) FROM n", 10);
+        t.join().unwrap();
+        assert!(r.unwrap_err().contains("interrupt"));
     }
 
     #[test]

@@ -5,13 +5,14 @@ use postgres::{Client, NoTls, SimpleQueryMessage};
 
 use crate::{Banco, Conexao, Resultado};
 
-struct Pg(Client);
+struct Pg(Client, Option<tokio_postgres_rustls::MakeRustlsConnect>);
 
 pub(crate) fn conectar(c: &Conexao, senha: &str) -> Result<Box<dyn Banco>, String> {
     let mut cfg = postgres::Config::new();
     cfg.host(&c.host).port(c.porta).user(&c.usuario).password(senha).application_name("FeatherDB");
     cfg.dbname(if c.banco.is_empty() { "postgres" } else { &c.banco });
     cfg.connect_timeout(std::time::Duration::from_secs(15));
+    let mut conector = None;
     let cliente = if c.tls {
         let raizes = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
         let tls = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
@@ -20,11 +21,13 @@ pub(crate) fn conectar(c: &Conexao, senha: &str) -> Result<Box<dyn Banco>, Strin
             .with_root_certificates(raizes)
             .with_no_client_auth();
         cfg.ssl_mode(postgres::config::SslMode::Require);
-        cfg.connect(tokio_postgres_rustls::MakeRustlsConnect::new(tls))
+        let tls = tokio_postgres_rustls::MakeRustlsConnect::new(tls);
+        conector = Some(tls.clone());
+        cfg.connect(tls)
     } else {
         cfg.connect(NoTls)
     };
-    cliente.map(|c| Box::new(Pg(c)) as Box<dyn Banco>).map_err(|e| erro(&e))
+    cliente.map(|c| Box::new(Pg(c, conector)) as Box<dyn Banco>).map_err(|e| erro(&e))
 }
 
 /// A mensagem do servidor (`ERROR: ...`), sem o "db error:" do driver na frente.
@@ -33,6 +36,17 @@ fn erro(e: &postgres::Error) -> String {
 }
 
 impl Banco for Pg {
+    fn cancelador(&self) -> Option<crate::Cancelar> {
+        // O Postgres cancela por uma conexão à parte, com o token desta.
+        let (token, tls) = (self.0.cancel_token(), self.1.clone());
+        Some(std::sync::Arc::new(move || {
+            let _ = match &tls {
+                Some(t) => token.cancel_query(t.clone()),
+                None => token.cancel_query(NoTls),
+            };
+        }))
+    }
+
     fn executar(&mut self, sql: &str, limite: usize) -> Result<Resultado, String> {
         let mut r = Resultado::default();
         // Vários comandos de uma vez: fica o resultado do último que trouxe linhas.
