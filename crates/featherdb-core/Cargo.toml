@@ -18,3 +18,8 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 libloading = "0.8"
 # Senhas lembradas: no cofre do sistema (Secret Service no Linux, Credenciais no Windows), nunca em arquivo.
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "windows-native", "apple-native"] }
+# MongoDB: o driver oficial, 100% Rust (TLS com rustls, DNS do mongodb+srv:// sem biblioteca do sistema).
+mongodb = { version = "3", features = ["sync"] }
+# Os argumentos dos comandos do Mongo vêm no jeito do shell (chave sem aspas, aspas simples): JSON5.
+json5 = "1"
+serde_json = "1"

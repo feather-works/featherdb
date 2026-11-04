@@ -1,6 +1,7 @@
 //! O motor do FeatherDB: as conexões guardadas, os drivers (Postgres, MySQL, SQLite e ODBC),
 //! as consultas e o catálogo (tabelas e colunas). Nada de interface aqui.
 pub mod cofre;
+mod mongo_banco;
 mod mysql_banco;
 mod odbc;
 mod postgres_banco;
@@ -18,23 +19,26 @@ pub enum Tipo {
     Sqlite,
     /// Qualquer banco com driver ODBC instalado: SAP HANA/Datasphere, TIBCO TDV, SQL Server, Oracle…
     Odbc,
+    /// MongoDB (inclusive o Atlas, `mongodb+srv://`): o endereço inteiro fica em `caminho`, sem a senha.
+    MongoDb,
 }
 
 impl Tipo {
-    pub const TODOS: [Tipo; 4] = [Tipo::Postgres, Tipo::MySql, Tipo::Sqlite, Tipo::Odbc];
+    pub const TODOS: [Tipo; 5] = [Tipo::Postgres, Tipo::MySql, Tipo::Sqlite, Tipo::MongoDb, Tipo::Odbc];
     pub fn nome(self) -> &'static str {
         match self {
             Tipo::Postgres => "PostgreSQL",
             Tipo::MySql => "MySQL / MariaDB",
             Tipo::Sqlite => "SQLite",
             Tipo::Odbc => "ODBC",
+            Tipo::MongoDb => "MongoDB",
         }
     }
     pub fn porta_padrao(self) -> u16 {
         match self {
             Tipo::Postgres => 5432,
             Tipo::MySql => 3306,
-            Tipo::Sqlite | Tipo::Odbc => 0,
+            Tipo::Sqlite | Tipo::Odbc | Tipo::MongoDb => 0,
         }
     }
     fn codigo(self) -> &'static str {
@@ -43,6 +47,7 @@ impl Tipo {
             Tipo::MySql => "mysql",
             Tipo::Sqlite => "sqlite",
             Tipo::Odbc => "odbc",
+            Tipo::MongoDb => "mongodb",
         }
     }
     fn de_codigo(c: &str) -> Option<Tipo> {
@@ -93,6 +98,20 @@ impl Conexao {
     pub fn de_url(url: &str) -> Option<(Conexao, String)> {
         let url = url.trim();
         let (esquema, resto) = url.split_once("://")?;
+        if esquema == "mongodb" || esquema == "mongodb+srv" {
+            // O endereço inteiro fica guardado (sem a senha): o driver do Mongo entende as opções dele.
+            let fim_host = resto.find('/').unwrap_or(resto.len());
+            let (credencial, depois) = match resto[..fim_host].rfind('@') {
+                Some(a) => (&resto[..a], &resto[a + 1..]),
+                None => ("", resto),
+            };
+            let (usuario, senha) = credencial.split_once(':').unwrap_or((credencial, ""));
+            let senha = if senha == "<db_password>" { String::new() } else { decodificar(senha) };
+            let banco = depois.split_once('/').map_or("", |(_, b)| b.split('?').next().unwrap_or(""));
+            let caminho = if usuario.is_empty() { format!("{esquema}://{depois}") } else { format!("{esquema}://{usuario}@{depois}") };
+            let c = Conexao { caminho, usuario: decodificar(usuario), banco: decodificar(banco), ..Conexao::nova(Tipo::MongoDb) };
+            return Some((c, senha));
+        }
         let tipo = match esquema {
             "postgresql" | "postgres" => Tipo::Postgres,
             "mysql" | "mariadb" => Tipo::MySql,
@@ -120,6 +139,13 @@ impl Conexao {
         match self.tipo {
             Tipo::Sqlite => Path::new(&self.caminho).file_name().map_or("SQLite".into(), |n| n.to_string_lossy().into_owned()),
             Tipo::Odbc => "ODBC".into(),
+            Tipo::MongoDb => {
+                // O servidor do endereço, sem esquema, usuário e opções.
+                let resto = self.caminho.split_once("://").map_or(self.caminho.as_str(), |(_, r)| r);
+                let resto = resto.rsplit_once('@').map_or(resto, |(_, h)| h);
+                let host = resto.split(['/', '?']).next().unwrap_or("MongoDB");
+                if self.banco.is_empty() { host.to_owned() } else { format!("{}@{host}", self.banco) }
+            }
             _ => format!("{}@{}", if self.banco.is_empty() { self.tipo.nome() } else { &self.banco }, self.host),
         }
     }
@@ -131,6 +157,7 @@ impl Conexao {
             Tipo::MySql => mysql_banco::conectar(self, senha),
             Tipo::Sqlite => sqlite_banco::conectar(self),
             Tipo::Odbc => odbc::conectar(&self.caminho, &self.usuario, senha),
+            Tipo::MongoDb => mongo_banco::conectar(self, senha),
         }
     }
 }
@@ -426,6 +453,11 @@ mod testes {
         let (c, s) = Conexao::de_url("mysql://ana@db.x.com/loja?ssl-mode=REQUIRED").unwrap();
         assert_eq!((c.tipo, c.porta, c.usuario.as_str(), s.as_str(), c.tls), (Tipo::MySql, 3306, "ana", "", true));
         assert!(Conexao::de_url("192.168.0.223").is_none());
+        let (c, s) = Conexao::de_url("mongodb+srv://gm:<db_password>@cluster0.ab.mongodb.net/?retryWrites=true").unwrap();
+        assert_eq!((c.tipo, c.caminho.as_str(), c.usuario.as_str(), c.banco.as_str(), s.as_str()), (Tipo::MongoDb, "mongodb+srv://gm@cluster0.ab.mongodb.net/?retryWrites=true", "gm", "", ""));
+        assert_eq!(c.rotulo(), "cluster0.ab.mongodb.net");
+        let (c, s) = Conexao::de_url("mongodb://ana:x%40y@localhost:27017/loja").unwrap();
+        assert_eq!((c.banco.as_str(), s.as_str(), c.caminho.as_str()), ("loja", "x@y", "mongodb://ana@localhost:27017/loja"));
         assert!(Conexao::de_url("postgres://h:porta/x").is_none());
     }
 

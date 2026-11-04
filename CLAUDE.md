@@ -12,6 +12,9 @@ outro projeto) e `../feather-ui-pelicano/GUIA-JANELAS.md` (ícones só Tabler, c
   (`odbc.rs`: a API ODBC carregada com `libloading` só ao conectar; o app abre sem unixODBC; funções "W",
   texto em UTF-16, para os acentos não quebrarem no Windows).
   ODBC é o caminho para Datasphere/HANA, TIBCO TDV e outros (o papel do JDBC no DBeaver, sem Java).
+  MongoDB (`mongo_banco.rs`, driver oficial `mongodb` com `sync`, pedido do usuário em 04/11/2026): o endereço
+  inteiro fica em `caminho` sem a senha; o editor aceita `db.x.find/aggregate/countDocuments` e `show
+  collections/dbs` (argumentos em JSON5, `ObjectId(...)`/`ISODate(...)` viram JSON estendido).
 - `Content::cursor()` do pelicano conta de 1; o motor (`comando_no_cursor`) conta de 0 (`App::comando_atual`).
 - Árvore: `Item` (conexão) › `Base` (um banco aberto) › tabelas › colunas. Postgres/MySQL com o banco em branco
   listam os bancos (`Banco::bancos`) e cada um abre a sua conexão (`App::abrir_banco`); o `Alvo` (id, banco)

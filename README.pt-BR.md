@@ -12,7 +12,8 @@ A ideia do DBeaver, sem o peso: abre na hora e usa cerca de 100 MB de memória.
 
 - **Conexões:** PostgreSQL, MySQL/MariaDB e SQLite prontos (TLS para bancos na nuvem). Cole um endereço
   `postgresql://` ou `mysql://` e o formulário se preenche sozinho. Qualquer outro
-  banco por **ODBC**: SAP Datasphere/HANA, TIBCO TDV, SQL Server, Oracle, Snowflake… É o papel dos
+  banco por **ODBC**. **MongoDB** e Atlas (`mongodb+srv://`): coleções na árvore, `find`, `aggregate` e
+  `countDocuments` no editor, documentos como linhas: SAP Datasphere/HANA, TIBCO TDV, SQL Server, Oracle, Snowflake… É o papel dos
   drivers JDBC do DBeaver, sem Java. O gerenciador ODBC só é carregado ao conectar: o FeatherDB abre
   mesmo sem o unixODBC instalado.
 - **Editor de SQL:** `Ctrl+Enter` roda o comando do cursor (ou a seleção); `Alt+X`/`F5` roda o script

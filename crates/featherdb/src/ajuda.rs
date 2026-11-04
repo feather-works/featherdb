@@ -62,7 +62,7 @@ fn montar() -> Catalogo {
                     ]),
                 ],
             ),
-            secao("bancos", "Bancos de dados", "PostgreSQL, MySQL e SQLite vêm prontos. Os outros entram por ODBC.", vec![
+            secao("bancos", "Bancos de dados", "PostgreSQL, MySQL, SQLite e MongoDB vêm prontos. Os outros entram por ODBC.", vec![
                 topico("postgres-mysql", "PostgreSQL, MySQL e MariaDB", vec![
                     t("Preencha servidor, porta, banco e usuário. Bancos na nuvem quase sempre exigem a opção de conexão criptografada (TLS)."),
                     t("Deixou o banco em branco? A árvore mostra todos os bancos do servidor; clique num deles para abrir as tabelas."),
@@ -70,6 +70,11 @@ fn montar() -> Catalogo {
                 ]),
                 topico("sqlite", "SQLite", vec![
                     t("Escolha o arquivo do banco. Se ele não existir, o FeatherDB cria um banco novo e vazio."),
+                ]),
+                topico("mongodb", "MongoDB e Atlas", vec![
+                    t("Cole o endereço mongodb:// ou mongodb+srv:// (o do Atlas, em Connect › Drivers). A senha é a do usuário do banco, cadastrada em Database Access, e não a do site."),
+                    t("No editor vão os comandos do shell do Mongo: db.clientes.find({idade: {$gt: 30}}).sort({nome: 1}).limit(10), aggregate([...]), countDocuments({...}), show collections e show dbs."),
+                    t("Cada documento vira uma linha e cada campo do primeiro nível, uma coluna; objetos e listas aparecem como JSON."),
                 ]),
                 topico("odbc", "Datasphere, TDV e outros (ODBC)", vec![
                     t("Para bancos que não vêm prontos, instale o driver ODBC do fornecedor e escreva a string de conexão. É o mesmo papel do driver JDBC do DBeaver, sem precisar de Java."),

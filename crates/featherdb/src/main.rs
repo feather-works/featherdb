@@ -258,7 +258,7 @@ impl App {
     fn precisa_senha(c: &Conexao) -> bool {
         match c.tipo {
             Tipo::Postgres | Tipo::MySql => true,
-            Tipo::Odbc => !c.usuario.is_empty(),
+            Tipo::Odbc | Tipo::MongoDb => !c.usuario.is_empty(),
             Tipo::Sqlite => false,
         }
     }
@@ -372,7 +372,7 @@ impl Item {
 
     /// Postgres ou MySQL sem banco escolhido: a árvore mostra os bancos do servidor.
     fn servidor(&self) -> bool {
-        matches!(self.conexao.tipo, Tipo::Postgres | Tipo::MySql) && self.conexao.banco.trim().is_empty()
+        matches!(self.conexao.tipo, Tipo::Postgres | Tipo::MySql | Tipo::MongoDb) && self.conexao.banco.trim().is_empty()
     }
 }
 
@@ -566,8 +566,12 @@ impl pelicano::App for App {
                 let tipo = self.tipo(alvo.0);
                 self.ativa = Some(alvo);
                 // Com LIMIT o banco não manda a tabela inteira (o ODBC fica sem: cada banco escreve de um jeito).
-                let limite = if tipo == Tipo::Odbc { String::new() } else { format!(" LIMIT {LIMITE_LINHAS}") };
-                return self.rodar(vec![format!("SELECT * FROM {}{limite}", t.qualificado(tipo))]);
+                let sql = match tipo {
+                    Tipo::MongoDb => format!("db.getCollection({:?}).find({{}}).limit({LIMITE_LINHAS})", t.nome),
+                    Tipo::Odbc => format!("SELECT * FROM {}", t.qualificado(tipo)),
+                    _ => format!("SELECT * FROM {} LIMIT {LIMITE_LINHAS}", t.qualificado(tipo)),
+                };
+                return self.rodar(vec![sql]);
             }
             Msg::AbrirMenu(m, p) => self.menu = Some((m, p)),
             Msg::FecharMenu => self.menu = None,
@@ -583,13 +587,22 @@ impl pelicano::App for App {
                     c.iter().map(|(n, _)| featherdb_core::identificador(n, tipo)).collect::<Vec<_>>().join(", ")
                 });
                 self.ativa = Some(alvo);
-                self.editor.insert(&format!("SELECT {colunas}\nFROM {}\nWHERE ;\n", t.qualificado(tipo)));
+                let texto = if tipo == Tipo::MongoDb {
+                    format!("db.getCollection({:?}).find({{}})\n", t.nome)
+                } else {
+                    format!("SELECT {colunas}\nFROM {}\nWHERE ;\n", t.qualificado(tipo))
+                };
+                self.editor.insert(&texto);
                 self.gravar_rascunho();
             }
             Msg::Contar(alvo, t) => {
                 let tipo = self.tipo(alvo.0);
                 self.ativa = Some(alvo);
-                return self.rodar(vec![format!("SELECT COUNT(*) AS total FROM {}", t.qualificado(tipo))]);
+                return self.rodar(vec![if tipo == Tipo::MongoDb {
+                    format!("db.getCollection({:?}).countDocuments({{}})", t.nome)
+                } else {
+                    format!("SELECT COUNT(*) AS total FROM {}", t.qualificado(tipo))
+                }]);
             }
             Msg::CopiarTexto(texto) => {
                 self.aviso = match arboard::Clipboard::new().and_then(|mut c| c.set_text(texto.clone())) {
@@ -856,7 +869,7 @@ impl App {
             lista = lista.push(
                 column![
                     text(tr("Nenhuma conexão ainda.")).size(13).font(Font::SEMIBOLD),
-                    text(tr("Crie uma para PostgreSQL, MySQL, SQLite ou qualquer banco com driver ODBC (Datasphere, TDV, SQL Server…).")).size(12).color(COR_TEXTO_MUTED()).line_height(1.45),
+                    text(tr("Crie uma para PostgreSQL, MySQL, SQLite, MongoDB ou qualquer banco com driver ODBC (Datasphere, TDV, SQL Server…).")).size(12).color(COR_TEXTO_MUTED()).line_height(1.45),
                     feather_ui::dialogo::botao_primario(tr("Nova conexão"), Some(Msg::Nova)),
                 ]
                 .spacing(10)
@@ -1072,12 +1085,22 @@ impl App {
             Menu::Tabela(alvo, t) => {
                 let (id, tipo) = (alvo.clone(), self.tipo(alvo.0));
                 let aberta = self.base(alvo).is_some_and(|b| b.tabelas_abertas.contains(&t.qualificado(tipo)));
+                let mongo = tipo == Tipo::MongoDb;
                 lista = lista
-                    .push(item(traco("player-play"), tr("Ver os dados (SELECT *)"), Some(Msg::AbrirTabela(id.clone(), t.clone()))))
-                    .push(item(traco("pencil"), tr("Escrever o SELECT no editor"), Some(Msg::EscreverSelect(id.clone(), t.clone()))))
-                    .push(item(traco("math-function"), tr("Contar as linhas (COUNT)"), Some(Msg::Contar(id.clone(), t.clone()))))
+                    .push(item(traco("player-play"), if mongo { tr("Ver os documentos (find)") } else { tr("Ver os dados (SELECT *)") }, Some(Msg::AbrirTabela(id.clone(), t.clone()))))
+                    .push(item(traco("pencil"), if mongo { tr("Escrever o find no editor") } else { tr("Escrever o SELECT no editor") }, Some(Msg::EscreverSelect(id.clone(), t.clone()))))
+                    .push(item(traco("math-function"), if mongo { tr("Contar os documentos") } else { tr("Contar as linhas (COUNT)") }, Some(Msg::Contar(id.clone(), t.clone()))))
                     .push(separador())
-                    .push(item(traco("columns"), if aberta { tr("Esconder as colunas") } else { tr("Mostrar as colunas") }, Some(Msg::ExpandirTabela(id.clone(), t.clone()))))
+                    .push(item(
+                        traco("columns"),
+                        match (aberta, mongo) {
+                            (true, true) => tr("Esconder os campos"),
+                            (false, true) => tr("Mostrar os campos"),
+                            (true, false) => tr("Esconder as colunas"),
+                            (false, false) => tr("Mostrar as colunas"),
+                        },
+                        Some(Msg::ExpandirTabela(id.clone(), t.clone())),
+                    ))
                     .push(item(traco("copy"), tr("Copiar o nome"), Some(Msg::CopiarTexto(t.qualificado(tipo)))));
             }
         }
@@ -1125,6 +1148,7 @@ fn selo<'a>(tipo: Tipo) -> Element<'a, Msg> {
         Tipo::MySql => "MY",
         Tipo::Sqlite => "SQ",
         Tipo::Odbc => "OD",
+        Tipo::MongoDb => "MG",
     };
     container(text(sigla).size(10.5).font(Font::BOLD).color(COR_AZUL_ACENTO()))
         .width(28)

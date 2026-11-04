@@ -65,6 +65,7 @@ impl Formulario {
             }
             Tipo::Sqlite if c.caminho.trim().is_empty() => return Err(tr("Escolha o arquivo do banco SQLite.")),
             Tipo::Odbc if c.caminho.trim().is_empty() => return Err(tr("Escreva a string de conexão ODBC.")),
+            Tipo::MongoDb if !c.caminho.trim().starts_with("mongodb") => return Err(tr("Cole o endereço do MongoDB (mongodb:// ou mongodb+srv://).")),
             _ => {}
         }
         Ok(c)
@@ -108,6 +109,19 @@ impl Formulario {
                         .align(Align::End),
                 );
                 corpo = corpo.push(text(tr("Se o arquivo não existir, um banco novo e vazio é criado nele.")).size(12).color(COR_TEXTO_MUTED()));
+            }
+            Tipo::MongoDb => {
+                corpo = corpo.push(
+                    column![
+                        text(tr("Endereço")).size(12).color(COR_TEXTO_MUTED()),
+                        text_input("mongodb+srv://usuario:<db_password>@cluster.mongodb.net/", self.c.caminho.as_str()).on_input(|s| Msg::Form(Campo::Caminho(s))).padding([6, 9]).size(13),
+                    ]
+                    .spacing(4)
+                    .width(Length::FILL),
+                );
+                corpo = corpo.push(text(tr("No Atlas: Connect › Drivers copia o endereço. A senha é a do usuário do banco (Database Access), não a do site; e o seu IP precisa estar liberado em Network Access.")).size(12).color(COR_TEXTO_MUTED()));
+                corpo = corpo.push(row![campo(tr("Banco de dados (opcional)"), &self.c.banco, Campo::Banco), self.campo_senha()].spacing(12));
+                corpo = corpo.push(self.caixa_lembrar());
             }
             Tipo::Odbc => {
                 corpo = corpo.push(campo(tr("String de conexão"), &self.c.caminho, Campo::Caminho));
@@ -176,7 +190,16 @@ impl App {
             Campo::Banco(s) => form.c.banco = s,
             Campo::Usuario(s) => form.c.usuario = s,
             Campo::Senha(s) => form.senha = s,
-            Campo::Caminho(s) => form.c.caminho = s,
+            Campo::Caminho(s) => match Conexao::de_url(&s).filter(|(c, _)| c.tipo == Tipo::MongoDb) {
+                // Endereço do Mongo colado: usuário, banco e senha (se vier) saem dele; o endereço guarda sem a senha.
+                Some((c, senha)) => {
+                    form.c = Conexao { nome: std::mem::take(&mut form.c.nome), lembrar_senha: form.c.lembrar_senha, ..c };
+                    if !senha.is_empty() {
+                        form.senha = senha;
+                    }
+                }
+                None => form.c.caminho = s,
+            },
             Campo::Tls(v) => form.c.tls = v,
             Campo::Lembrar(v) => form.c.lembrar_senha = v,
             Campo::EscolherArquivo => {
@@ -274,6 +297,16 @@ mod testes {
         let _ = app.update_form(Campo::Host("postgresql://postgres:x@10.0.0.5:5433/loto".into()));
         let f = app.form.as_ref().unwrap();
         assert_eq!((f.c.tipo, f.c.nome.as_str(), f.c.host.as_str(), f.porta.as_str(), f.c.banco.as_str(), f.senha.as_str()), (Tipo::Postgres, "Lotofácil", "10.0.0.5", "5433", "loto", "x"));
+    }
+
+    #[test]
+    fn colar_endereco_do_atlas_tira_a_senha_do_endereco() {
+        let mut app = App::novo(crate::config::Config::default());
+        app.form = Some(Formulario::novo(None, Conexao::nova(Tipo::MongoDb)));
+        let _ = app.update_form(Campo::Caminho("mongodb+srv://gm:s3nha@c.x.mongodb.net/".into()));
+        let f = app.form.as_ref().unwrap();
+        assert_eq!((f.c.caminho.as_str(), f.c.usuario.as_str(), f.senha.as_str()), ("mongodb+srv://gm@c.x.mongodb.net/", "gm", "s3nha"));
+        assert!(f.conexao().is_ok());
     }
 
     #[test]
