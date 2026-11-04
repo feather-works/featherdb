@@ -10,6 +10,7 @@ mod odbc;
 mod postgres_banco;
 mod sqlite_banco;
 mod tls;
+mod tunel;
 
 use std::path::{Path, PathBuf};
 
@@ -92,6 +93,13 @@ pub struct Conexao {
     pub somente_leitura: bool,
     /// Banco de produção: cor de alerta e confirmação antes de qualquer comando que muda dados.
     pub producao: bool,
+    /// Túnel SSH (Postgres e MySQL): servidor, porta, usuário e o arquivo da chave (vazio = senha).
+    pub ssh_host: String,
+    pub ssh_porta: u16,
+    pub ssh_usuario: String,
+    pub ssh_chave: String,
+    /// A senha do SSH (ou da chave) nesta sessão. Nunca vai para o arquivo.
+    pub ssh_senha: String,
 }
 
 impl Conexao {
@@ -112,6 +120,11 @@ impl Conexao {
             lembrar_senha: true,
             somente_leitura: false,
             producao: false,
+            ssh_host: String::new(),
+            ssh_porta: 22,
+            ssh_usuario: String::new(),
+            ssh_chave: String::new(),
+            ssh_senha: String::new(),
         }
     }
 
@@ -175,7 +188,20 @@ impl Conexao {
     }
 
     /// Conecta. Bloqueia: a interface chama numa thread à parte.
+    /// Usa túnel SSH (só bancos com servidor e porta).
+    pub fn usa_ssh(&self) -> bool {
+        matches!(self.tipo, Tipo::Postgres | Tipo::MySql) && !self.ssh_host.trim().is_empty()
+    }
+
     pub fn conectar(&self, senha: &str) -> Result<Box<dyn Banco>, String> {
+        if self.usa_ssh() {
+            // O banco é alcançado pela porta local do túnel. O nome no certificado TLS é o do banco,
+            // não 127.0.0.1: com túnel o TLS só criptografa (o SSH já conferiu o servidor).
+            let tunel = tunel::abrir(self, (self.host.clone(), self.porta))?;
+            let local = Conexao { host: "127.0.0.1".into(), porta: tunel.porta, ssh_host: String::new(), tls_conferir: false, ..self.clone() };
+            let banco = local.conectar(senha)?;
+            return Ok(Box::new(tunel::ComTunel { banco, _tunel: tunel }));
+        }
         let mut b = match self.tipo {
             Tipo::Postgres => postgres_banco::conectar(self, senha),
             Tipo::MySql => mysql_banco::conectar(self, senha),
@@ -577,6 +603,11 @@ pub fn ler_conexoes(arquivo: &Path) -> Vec<Conexao> {
                 lembrar_senha: lembrar == "1",
                 somente_leitura: extra(13) == "1",
                 producao: extra(14) == "1",
+                ssh_host: extra(15).into(),
+                ssh_porta: extra(16).parse().unwrap_or(22),
+                ssh_usuario: extra(17).into(),
+                ssh_chave: extra(18).into(),
+                ssh_senha: String::new(),
             })
         })
         .collect()
@@ -589,7 +620,7 @@ pub fn gravar_conexoes(arquivo: &Path, conexoes: &[Conexao]) -> Result<(), Strin
         .iter()
         .map(|c| {
             format!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                 c.tipo.codigo(),
                 limpo(&c.nome),
                 limpo(&c.host),
@@ -604,7 +635,11 @@ pub fn gravar_conexoes(arquivo: &Path, conexoes: &[Conexao]) -> Result<(), Strin
                 limpo(&c.tls_cert),
                 limpo(&c.tls_chave),
                 u8::from(c.somente_leitura),
-                u8::from(c.producao)
+                u8::from(c.producao),
+                limpo(&c.ssh_host),
+                c.ssh_porta,
+                limpo(&c.ssh_usuario),
+                limpo(&c.ssh_chave)
             )
         })
         .collect();
@@ -676,6 +711,10 @@ mod testes {
         c.tls_ca = "/etc/ssl/empresa-ca.pem".into();
         c.somente_leitura = true;
         c.producao = true;
+        c.ssh_host = "bastiao.empresa".into();
+        c.ssh_porta = 2222;
+        c.ssh_usuario = "ana".into();
+        c.ssh_chave = "/home/ana/.ssh/id_ed25519".into();
         let d = Conexao { caminho: "Driver={HDBODBC};ServerNode=x:443".into(), ..Conexao::nova(Tipo::Odbc) };
         gravar_conexoes(&p, &[c.clone(), d.clone()]).unwrap();
         let lidas = ler_conexoes(&p);

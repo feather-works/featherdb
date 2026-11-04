@@ -34,6 +34,25 @@ pub fn apagar(c: &Conexao) {
     }
 }
 
+/// A senha do túnel SSH (ou da chave) fica numa entrada própria, pelo servidor SSH.
+fn entrada_ssh(c: &Conexao) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(SERVICO, &format!("ssh://{}@{}:{}", c.ssh_usuario, c.ssh_host, c.ssh_porta)).map_err(|e| e.to_string())
+}
+
+pub fn ler_ssh(c: &Conexao) -> Option<String> {
+    entrada_ssh(c).ok()?.get_password().ok()
+}
+
+pub fn gravar_ssh(c: &Conexao, senha: &str) -> Result<(), String> {
+    entrada_ssh(c)?.set_password(senha).map_err(|e| e.to_string())
+}
+
+pub fn apagar_ssh(c: &Conexao) {
+    if let Ok(e) = entrada_ssh(c) {
+        let _ = e.delete_credential();
+    }
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;

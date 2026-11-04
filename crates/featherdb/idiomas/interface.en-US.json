@@ -393,5 +393,10 @@
  "Vazias (NULL)": "Empty (NULL)",
  "{} linhas copiadas.": "{} rows copied.",
  "+{} linhas": "+{} rows",
- "Buscar mais linhas": "Fetch more rows"
+ "Buscar mais linhas": "Fetch more rows",
+ "Chave privada (opcional)": "Private key (optional)",
+ "Conectar por túnel SSH (banco atrás de um servidor)": "Connect through an SSH tunnel (database behind a server)",
+ "Senha do SSH (ou da chave)": "SSH password (or key passphrase)",
+ "Servidor SSH": "SSH server",
+ "Usuário SSH": "SSH user"
 }

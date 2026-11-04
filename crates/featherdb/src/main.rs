@@ -397,6 +397,10 @@ impl App {
         if item.principal.banco.is_some() || item.principal.conectando {
             return Task::none();
         }
+        // A senha do túnel SSH vem do cofre (a da chave ou a do usuário SSH).
+        if item.conexao.usa_ssh() && item.conexao.ssh_senha.is_empty() && item.conexao.lembrar_senha {
+            item.conexao.ssh_senha = featherdb_core::cofre::ler_ssh(&item.conexao).unwrap_or_default();
+        }
         if item.senha.is_none() && App::precisa_senha(&item.conexao) {
             // Senha lembrada no cofre do sistema: conecta sem perguntar.
             item.senha = item.conexao.lembrar_senha.then(|| featherdb_core::cofre::ler(&item.conexao)).flatten();
@@ -669,7 +673,11 @@ impl pelicano::App for App {
                 if let Some(i) = self.itens.iter().find(|i| i.id == id) {
                     // A senha já configurada vem preenchida: salvar a edição não obriga a digitar de novo.
                     let senha = i.senha.clone().or_else(|| i.conexao.lembrar_senha.then(|| featherdb_core::cofre::ler(&i.conexao)).flatten());
-                    self.form = Some(Formulario::novo(Some(id), i.conexao.clone()).com_senha(senha.unwrap_or_default()));
+                    let mut c = i.conexao.clone();
+                    if c.usa_ssh() && c.ssh_senha.is_empty() && c.lembrar_senha {
+                        c.ssh_senha = featherdb_core::cofre::ler_ssh(&c).unwrap_or_default();
+                    }
+                    self.form = Some(Formulario::novo(Some(id), c).com_senha(senha.unwrap_or_default()));
                 }
             }
             Msg::Excluir(id) => self.excluir = Some(id),
@@ -750,6 +758,9 @@ impl pelicano::App for App {
                                 if let (true, Some(senha)) = (item.conexao.lembrar_senha && App::precisa_senha(&item.conexao), &item.senha) {
                                     if let Err(e) = featherdb_core::cofre::gravar(&item.conexao, senha) {
                                         self.aviso = trf("A senha não foi guardada no cofre do sistema: {}", &[&e]);
+                                    }
+                                    if item.conexao.usa_ssh() && !item.conexao.ssh_senha.is_empty() {
+                                        let _ = featherdb_core::cofre::gravar_ssh(&item.conexao, &item.conexao.ssh_senha);
                                     }
                                 }
                             }

@@ -16,6 +16,8 @@ pub(crate) struct Formulario {
     testando: bool,
     /// Resultado do "Testar": ok e a mensagem.
     teste: Option<(bool, String)>,
+    /// A seção do túnel SSH aberta.
+    ssh: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -35,6 +37,10 @@ pub(crate) enum Campo {
     EscolherCertificado(u8),
     Lembrar(bool),
     SoLeitura(bool),
+    Ssh(bool),
+    /// 0 servidor, 1 porta, 2 usuário, 3 chave, 4 senha.
+    CampoSsh(u8, String),
+    EscolherChaveSsh,
     Producao(bool),
     EscolherArquivo,
     Testar,
@@ -53,7 +59,7 @@ impl Formulario {
     }
 
     pub(crate) fn novo(editando: Option<u64>, c: Conexao) -> Formulario {
-        Formulario { editando, porta: c.porta.to_string(), c, senha: String::new(), testando: false, teste: None }
+        Formulario { editando, porta: c.porta.to_string(), ssh: !c.ssh_host.trim().is_empty(), c, senha: String::new(), testando: false, teste: None }
     }
 
     /// A conexão com a porta do campo; `Err` com o que está faltando.
@@ -86,6 +92,35 @@ impl Formulario {
     }
 
     /// As opções do TLS: conferir o certificado do servidor, a autoridade (CA) e o certificado do cliente.
+    /// Os campos do túnel SSH: servidor, porta, usuário, chave (opcional) e senha.
+    fn campos_ssh(&self) -> Element<'_, Msg> {
+        let campo = |rotulo: &str, dica: &str, valor: String, i: u8, segredo: bool| -> Element<'static, Msg> {
+            column![
+                text(rotulo.to_owned()).size(12).color(COR_TEXTO_MUTED()),
+                text_input(dica.to_owned(), valor).secure(segredo).on_input(move |s| Msg::Form(Campo::CampoSsh(i, s))).padding([6, 9]).size(12.5),
+            ]
+            .spacing(4)
+            .width(Length::FILL)
+            .into()
+        };
+        let porta = column![
+            text(tr("Porta")).size(12).color(COR_TEXTO_MUTED()),
+            text_input("22", self.c.ssh_porta.to_string()).on_input(|s| Msg::Form(Campo::CampoSsh(1, s))).padding([6, 9]).size(12.5),
+        ]
+        .spacing(4)
+        .width(90);
+        column![
+            row![campo(tr("Servidor SSH"), "bastiao.empresa.com", self.c.ssh_host.clone(), 0, false), porta].spacing(12),
+            row![campo(tr("Usuário SSH"), "", self.c.ssh_usuario.clone(), 2, false), campo(tr("Senha do SSH (ou da chave)"), "", self.c.ssh_senha.clone(), 4, true)].spacing(12),
+            row![campo(tr("Chave privada (opcional)"), "~/.ssh/id_ed25519", self.c.ssh_chave.clone(), 3, false), feather_ui::dialogo::botao_secundario(tr("Escolher…"), Some(Msg::Form(Campo::EscolherChaveSsh)))]
+                .spacing(8)
+                .align(Align::End),
+        ]
+        .spacing(10)
+        .padding(pelicano::Padding { top: 0.0, right: 0.0, bottom: 0.0, left: 26.0 })
+        .into()
+    }
+
     fn certificados(&self) -> Element<'_, Msg> {
         let arquivo = |rotulo: &str, valor: &str, i: u8| -> Element<'static, Msg> {
             row![
@@ -144,6 +179,10 @@ impl Formulario {
                 corpo = corpo.push(checkbox(tr("Conexão criptografada (TLS), exigida pela maioria dos bancos na nuvem"), self.c.tls).on_toggle(|v| Msg::Form(Campo::Tls(v))).size(13));
                 if self.c.tls {
                     corpo = corpo.push(self.certificados());
+                }
+                corpo = corpo.push(checkbox(tr("Conectar por túnel SSH (banco atrás de um servidor)"), self.ssh).on_toggle(|v| Msg::Form(Campo::Ssh(v))).size(13));
+                if self.ssh {
+                    corpo = corpo.push(self.campos_ssh());
                 }
             }
             Tipo::Sqlite => {
@@ -266,6 +305,33 @@ impl App {
             }
             Campo::Lembrar(v) => form.c.lembrar_senha = v,
             Campo::SoLeitura(v) => form.c.somente_leitura = v,
+            Campo::Ssh(v) => {
+                form.ssh = v;
+                if !v {
+                    form.c.ssh_host.clear();
+                }
+            }
+            Campo::CampoSsh(i, s) => match i {
+                0 => form.c.ssh_host = s,
+                1 => form.c.ssh_porta = s.trim().parse().unwrap_or(if s.trim().is_empty() { 22 } else { form.c.ssh_porta }),
+                2 => form.c.ssh_usuario = s,
+                3 => form.c.ssh_chave = s,
+                _ => form.c.ssh_senha = s,
+            },
+            Campo::EscolherChaveSsh => {
+                let atual = form.c.ssh_chave.clone();
+                return Task::perform(
+                    async {
+                        let pasta = std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".ssh"));
+                        let mut d = rfd::AsyncFileDialog::new();
+                        if let Some(p) = pasta {
+                            d = d.set_directory(p);
+                        }
+                        d.pick_file().await.map(|a| a.path().to_string_lossy().into_owned())
+                    },
+                    move |c| Msg::Form(Campo::CampoSsh(3, c.unwrap_or(atual))),
+                );
+            }
             Campo::Producao(v) => form.c.producao = v,
             Campo::EscolherArquivo => {
                 // Cancelar a escolha mantém o arquivo que já estava no campo.
@@ -310,6 +376,7 @@ impl App {
                 }
                 if !c.lembrar_senha {
                     featherdb_core::cofre::apagar(&c);
+                    featherdb_core::cofre::apagar_ssh(&c);
                 }
                 let id = match form.editando {
                     Some(id) => {

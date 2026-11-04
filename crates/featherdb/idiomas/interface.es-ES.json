@@ -393,5 +393,10 @@
  "Vazias (NULL)": "Vacías (NULL)",
  "{} linhas copiadas.": "{} filas copiadas.",
  "+{} linhas": "+{} filas",
- "Buscar mais linhas": "Buscar más filas"
+ "Buscar mais linhas": "Buscar más filas",
+ "Chave privada (opcional)": "Clave privada (opcional)",
+ "Conectar por túnel SSH (banco atrás de um servidor)": "Conectar por túnel SSH (base detrás de un servidor)",
+ "Senha do SSH (ou da chave)": "Contraseña SSH (o de la clave)",
+ "Servidor SSH": "Servidor SSH",
+ "Usuário SSH": "Usuario SSH"
 }
