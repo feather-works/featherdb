@@ -11,7 +11,11 @@ pub(crate) fn conectar(c: &Conexao) -> Result<Box<dyn Banco>, String> {
         return Err("Escolha o arquivo do banco SQLite.".into());
     }
     // Cria o arquivo se não existir: é assim que se começa um banco SQLite novo.
-    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_URI;
+    let flags = if c.somente_leitura {
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI
+    } else {
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_URI
+    };
     Connection::open_with_flags(&c.caminho, flags).map(|c| Box::new(Lite(c)) as Box<dyn Banco>).map_err(|e| e.to_string())
 }
 

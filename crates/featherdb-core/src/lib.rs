@@ -87,6 +87,11 @@ pub struct Conexao {
     pub tls_chave: String,
     /// Guardar a senha no cofre do sistema ([`cofre`]) e não pedir de novo.
     pub lembrar_senha: bool,
+    /// Só leitura: o próprio banco recusa mudanças (Postgres e MySQL pela sessão, SQLite pelo arquivo);
+    /// nos outros a interface barra o que não é leitura.
+    pub somente_leitura: bool,
+    /// Banco de produção: cor de alerta e confirmação antes de qualquer comando que muda dados.
+    pub producao: bool,
 }
 
 impl Conexao {
@@ -105,6 +110,8 @@ impl Conexao {
             tls_cert: String::new(),
             tls_chave: String::new(),
             lembrar_senha: true,
+            somente_leitura: false,
+            producao: false,
         }
     }
 
@@ -169,13 +176,30 @@ impl Conexao {
 
     /// Conecta. Bloqueia: a interface chama numa thread à parte.
     pub fn conectar(&self, senha: &str) -> Result<Box<dyn Banco>, String> {
-        match self.tipo {
+        let mut b = match self.tipo {
             Tipo::Postgres => postgres_banco::conectar(self, senha),
             Tipo::MySql => mysql_banco::conectar(self, senha),
             Tipo::Sqlite => sqlite_banco::conectar(self),
             Tipo::Odbc => odbc::conectar(&self.caminho, &self.usuario, senha),
             Tipo::MongoDb => mongo_banco::conectar(self, senha),
+        }?;
+        // Só leitura garantida pelo servidor, não só pela interface (o SQLite abre o arquivo só para ler).
+        let travar = match (self.somente_leitura, self.tipo) {
+            (true, Tipo::Postgres) => Some("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY"),
+            (true, Tipo::MySql) => Some("SET SESSION TRANSACTION READ ONLY"),
+            _ => None,
+        };
+        if let Some(sql) = travar {
+            b.executar(sql, 0)?;
         }
+        Ok(b)
+    }
+}
+
+impl Tipo {
+    /// Bancos em que o FeatherDB abre transação (BEGIN … COMMIT/ROLLBACK) pelo modo manual.
+    pub fn tem_transacao(self) -> bool {
+        matches!(self, Tipo::Postgres | Tipo::MySql | Tipo::Sqlite)
     }
 }
 
@@ -466,6 +490,13 @@ pub fn so_le(sql: &str) -> bool {
     matches!(p.as_str(), "select" | "show" | "explain" | "describe" | "desc" | "values" | "table") || ((p == "with" || p.starts_with("db.")) && !escreve)
 }
 
+/// Comando que muda dados ou estrutura (o que uma conexão só leitura barra e uma de produção confirma).
+/// Leitura, SET e controle de transação não contam.
+pub fn muda_dados(sql: &str) -> bool {
+    let p = sql.trim_start().split(|c: char| !c.is_ascii_alphabetic()).next().unwrap_or("").to_ascii_lowercase();
+    !so_le(sql) && !matches!(p.as_str(), "set" | "begin" | "start" | "commit" | "rollback" | "end" | "")
+}
+
 /// Comando que muda a estrutura do banco (tabelas, views, funções): a árvore precisa ler o catálogo de novo.
 pub fn muda_estrutura(sql: &str) -> bool {
     let p = sql.trim_start().split(|c: char| !c.is_ascii_alphabetic()).next().unwrap_or("").to_ascii_lowercase();
@@ -544,6 +575,8 @@ pub fn ler_conexoes(arquivo: &Path) -> Vec<Conexao> {
                 tls_cert: extra(11).into(),
                 tls_chave: extra(12).into(),
                 lembrar_senha: lembrar == "1",
+                somente_leitura: extra(13) == "1",
+                producao: extra(14) == "1",
             })
         })
         .collect()
@@ -556,7 +589,7 @@ pub fn gravar_conexoes(arquivo: &Path, conexoes: &[Conexao]) -> Result<(), Strin
         .iter()
         .map(|c| {
             format!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                 c.tipo.codigo(),
                 limpo(&c.nome),
                 limpo(&c.host),
@@ -569,7 +602,9 @@ pub fn gravar_conexoes(arquivo: &Path, conexoes: &[Conexao]) -> Result<(), Strin
                 u8::from(c.tls_conferir),
                 limpo(&c.tls_ca),
                 limpo(&c.tls_cert),
-                limpo(&c.tls_chave)
+                limpo(&c.tls_chave),
+                u8::from(c.somente_leitura),
+                u8::from(c.producao)
             )
         })
         .collect();
@@ -596,6 +631,7 @@ mod testes {
         assert!(!so_le("update t set a = 1"));
         assert!(!so_le("WITH x AS (SELECT 1) DELETE FROM t"));
         assert!(!so_le("db.pedidos.deleteMany({})"));
+        assert!(muda_dados("insert into t values (1)") && muda_dados("drop table t") && !muda_dados("select 1") && !muda_dados("COMMIT") && !muda_dados("set search_path to x"));
         assert!(muda_estrutura("CREATE VIEW v AS SELECT 1") && muda_estrutura("  drop table t") && !muda_estrutura("select 1"));
     }
 
@@ -638,6 +674,8 @@ mod testes {
         c.tls = true;
         c.tls_conferir = false;
         c.tls_ca = "/etc/ssl/empresa-ca.pem".into();
+        c.somente_leitura = true;
+        c.producao = true;
         let d = Conexao { caminho: "Driver={HDBODBC};ServerNode=x:443".into(), ..Conexao::nova(Tipo::Odbc) };
         gravar_conexoes(&p, &[c.clone(), d.clone()]).unwrap();
         let lidas = ler_conexoes(&p);
@@ -739,6 +777,18 @@ mod testes {
         assert_eq!(identificador("clientes", Tipo::Postgres), "clientes");
         assert_eq!(identificador("Clientes", Tipo::Postgres), "\"Clientes\"");
         assert_eq!(identificador("a`b", Tipo::MySql), "`a``b`");
+    }
+
+    #[test]
+    fn sqlite_so_leitura_recusa_mudanca() {
+        let p = std::env::temp_dir().join(format!("featherdb-leitura-{}.db", std::process::id()));
+        let c = Conexao { caminho: p.to_string_lossy().into_owned(), ..Conexao::nova(Tipo::Sqlite) };
+        c.conectar("").unwrap().executar("create table t (a int)", 0).unwrap();
+        let mut b = Conexao { somente_leitura: true, ..c }.conectar("").unwrap();
+        assert!(b.executar("select * from t", 10).is_ok());
+        assert!(b.executar("insert into t values (1)", 0).unwrap_err().contains("readonly"));
+        drop(b);
+        let _ = std::fs::remove_file(p);
     }
 
     #[test]

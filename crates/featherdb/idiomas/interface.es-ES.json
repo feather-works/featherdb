@@ -354,5 +354,19 @@
  "Também dá para rodar um arquivo .sql inteiro sem abrir (o botão ao lado do disquete).": "También se puede ejecutar un archivo .sql entero sin abrirlo (el botón junto al disquete).",
  "Depois de CREATE, ALTER ou DROP a árvore lê o banco de novo sozinha: a tabela nova já aparece. Botão direito numa tabela também renomeia (mostrando o SQL antes).": "Después de CREATE, ALTER o DROP el árbol vuelve a leer la base solo: la tabla nueva ya aparece. El clic derecho en una tabla también la renombra (mostrando el SQL antes).",
  "Rodar um arquivo .sql sem abrir; renomear tabela pela árvore; a árvore se atualiza sozinha depois de CREATE, ALTER e DROP.": "Ejecutar un archivo .sql sin abrirlo; renombrar tabla desde el árbol; el árbol se actualiza solo después de CREATE, ALTER y DROP.",
- "Ordenar números grandes (ids de 20 dígitos) sem errar.": "Ordenar números grandes (ids de 20 dígitos) sin errores."
+ "Ordenar números grandes (ids de 20 dígitos) sem errar.": "Ordenar números grandes (ids de 20 dígitos) sin errores.",
+ "Auto-commit grava cada comando na hora. No manual, as mudanças só ficam depois do Commit.": "Auto-commit graba cada comando al momento. En manual, los cambios solo quedan después del Commit.",
+ "Auto-commit": "Auto-commit",
+ "Commit manual": "Commit manual",
+ "Esta conexão é de produção e o comando muda dados.": "Esta conexión es de producción y el comando cambia datos.",
+ "Esta conexão é só leitura: comandos que mudam dados não rodam. Para mudar, edite a conexão e desligue Só leitura.": "Esta conexión es de solo lectura: los comandos que cambian datos no se ejecutan. Para cambiar, edita la conexión y desactiva Solo lectura.",
+ "Faça Commit ou Rollback antes de voltar ao auto-commit.": "Haz Commit o Rollback antes de volver al auto-commit.",
+ "Mudanças desfeitas (Rollback).": "Cambios deshechos (Rollback).",
+ "Mudanças gravadas (Commit).": "Cambios grabados (Commit).",
+ "Mudar dados em produção?": "¿Cambiar datos en producción?",
+ "Produção (pede confirmação antes de mudar dados)": "Producción (pide confirmación antes de cambiar datos)",
+ "Só leitura (o banco recusa mudanças)": "Solo lectura (la base rechaza cambios)",
+ "produção": "producción",
+ "só leitura": "solo lectura",
+ "transação aberta": "transacción abierta"
 }

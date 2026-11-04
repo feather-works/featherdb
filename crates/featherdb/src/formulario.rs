@@ -34,6 +34,8 @@ pub(crate) enum Campo {
     Certificado(u8, String),
     EscolherCertificado(u8),
     Lembrar(bool),
+    SoLeitura(bool),
+    Producao(bool),
     EscolherArquivo,
     Testar,
     Testado(Result<(), String>),
@@ -173,6 +175,14 @@ impl Formulario {
                 corpo = corpo.push(self.caixa_lembrar());
             }
         }
+        // Proteções que valem para qualquer banco.
+        corpo = corpo.push(
+            row![
+                checkbox(tr("Só leitura (o banco recusa mudanças)"), self.c.somente_leitura).on_toggle(|v| Msg::Form(Campo::SoLeitura(v))).size(13),
+                checkbox(tr("Produção (pede confirmação antes de mudar dados)"), self.c.producao).on_toggle(|v| Msg::Form(Campo::Producao(v))).size(13),
+            ]
+            .spacing(18),
+        );
         if let Some((ok, msg)) = &self.teste {
             corpo = corpo.push(text(msg.as_str()).size(12.5).color(if *ok { COR_AZUL_ACENTO() } else { COR_ERRO() }));
         }
@@ -255,6 +265,8 @@ impl App {
                 );
             }
             Campo::Lembrar(v) => form.c.lembrar_senha = v,
+            Campo::SoLeitura(v) => form.c.somente_leitura = v,
+            Campo::Producao(v) => form.c.producao = v,
             Campo::EscolherArquivo => {
                 // Cancelar a escolha mantém o arquivo que já estava no campo.
                 let atual = form.c.caminho.clone();

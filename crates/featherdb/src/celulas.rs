@@ -42,6 +42,9 @@ impl App {
         if t.visao || !matches!(tipo, Tipo::Postgres | Tipo::MySql | Tipo::Sqlite) || self.executando || self.erro.is_some() {
             return None;
         }
+        if self.itens.iter().any(|i| i.id == alvo.0 && i.conexao.somente_leitura) {
+            return None;
+        }
         let r = self.resultado.as_ref()?;
         let colunas = self.base(alvo)?.colunas.get(&t.qualificado(tipo))?;
         let chaves: Vec<usize> = colunas.iter().filter(|c| c.chave).map(|c| r.colunas.iter().position(|n| *n == c.nome)).collect::<Option<_>>()?;

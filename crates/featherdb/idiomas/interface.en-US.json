@@ -354,5 +354,19 @@
  "Também dá para rodar um arquivo .sql inteiro sem abrir (o botão ao lado do disquete).": "You can also run a whole .sql file without opening it (the button next to the floppy).",
  "Depois de CREATE, ALTER ou DROP a árvore lê o banco de novo sozinha: a tabela nova já aparece. Botão direito numa tabela também renomeia (mostrando o SQL antes).": "After CREATE, ALTER or DROP the tree reads the database again on its own: the new table shows up. Right-click a table also renames it (showing the SQL first).",
  "Rodar um arquivo .sql sem abrir; renomear tabela pela árvore; a árvore se atualiza sozinha depois de CREATE, ALTER e DROP.": "Run a .sql file without opening it; rename a table from the tree; the tree refreshes itself after CREATE, ALTER and DROP.",
- "Ordenar números grandes (ids de 20 dígitos) sem errar.": "Sort large numbers (20-digit ids) correctly."
+ "Ordenar números grandes (ids de 20 dígitos) sem errar.": "Sort large numbers (20-digit ids) correctly.",
+ "Auto-commit grava cada comando na hora. No manual, as mudanças só ficam depois do Commit.": "Auto-commit saves each command right away. In manual mode, changes only stay after Commit.",
+ "Auto-commit": "Auto-commit",
+ "Commit manual": "Manual commit",
+ "Esta conexão é de produção e o comando muda dados.": "This is a production connection and the command changes data.",
+ "Esta conexão é só leitura: comandos que mudam dados não rodam. Para mudar, edite a conexão e desligue Só leitura.": "This connection is read-only: commands that change data do not run. To change data, edit the connection and turn off Read-only.",
+ "Faça Commit ou Rollback antes de voltar ao auto-commit.": "Commit or roll back before going back to auto-commit.",
+ "Mudanças desfeitas (Rollback).": "Changes undone (Rollback).",
+ "Mudanças gravadas (Commit).": "Changes saved (Commit).",
+ "Mudar dados em produção?": "Change data in production?",
+ "Produção (pede confirmação antes de mudar dados)": "Production (asks before changing data)",
+ "Só leitura (o banco recusa mudanças)": "Read-only (the database refuses changes)",
+ "produção": "production",
+ "só leitura": "read-only",
+ "transação aberta": "open transaction"
 }

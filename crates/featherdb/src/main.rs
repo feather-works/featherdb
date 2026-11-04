@@ -32,6 +32,9 @@ use estrutura_ui::{Aba, CampoColuna, EdicaoColuna};
 use formulario::{Campo, Formulario};
 use idioma::{tr, trf};
 
+/// Marca do diálogo de confirmação: conexão de produção (no lugar de DELETE/UPDATE sem WHERE).
+const PRODUCAO: &str = "PRODUCAO";
+
 /// Cor da marca do FeatherDB (pena azul-petróleo).
 const COR_MARCA: &str = "#0b7285";
 const LARGURA_LATERAL: f32 = 270.0;
@@ -55,6 +58,8 @@ struct Base {
     /// Todas as colunas do banco, para a busca e para exportar (lido na primeira busca).
     dicionario: Option<Vec<CampoDe>>,
     lendo_dicionario: bool,
+    /// Commit manual: há uma transação aberta nesta conexão (mudanças ainda não gravadas).
+    transacao: bool,
     /// Funções e procedimentos (Postgres e MySQL) e se a lista está aberta na árvore.
     funcoes: Vec<featherdb_core::Funcao>,
     funcoes_abertas: bool,
@@ -71,6 +76,8 @@ struct Item {
     /// Conexão sem banco escolhido (Postgres/MySQL): os bancos do servidor, cada um com a sua conexão.
     bancos: Option<Vec<String>>,
     bases: HashMap<String, Base>,
+    /// Commit manual: o primeiro comando que muda dados abre uma transação, que fica aberta até Commit ou Rollback.
+    manual: bool,
 }
 
 /// Onde o botão direito foi apertado.
@@ -145,6 +152,9 @@ enum Msg {
     /// e se a conexão tinha caído e foi refeita.
     Executado(u64, Result<Resultado, String>, Duration, bool),
     Parar,
+    AutoCommit,
+    /// `true` Commit, `false` Rollback.
+    FimTransacao(bool),
     Historico(Option<String>),
     UsarHistorico(String),
     Rolou(f32, f32, f32, f32),
@@ -202,6 +212,8 @@ struct App {
     cancelar: Option<featherdb_core::Cancelar>,
     /// A consulta rodando muda a estrutura (CREATE/ALTER/DROP): ao terminar, a árvore deste banco é lida de novo.
     ddl_em: Option<Alvo>,
+    /// Esta consulta abriu a transação do commit manual (se falhar, ela foi desfeita e fecha).
+    transacao_nova: Option<Alvo>,
     /// Renomeando uma tabela: onde, qual e o nome novo digitado.
     renomear: Option<(Alvo, Tabela, String)>,
     /// A janela do histórico aberta, com o texto da busca.
@@ -296,6 +308,7 @@ impl App {
             rodada: 0,
             cancelar: None,
             ddl_em: None,
+            transacao_nova: None,
             renomear: None,
             historico: None,
             filtro: String::new(),
@@ -483,10 +496,21 @@ impl App {
     /// Roda os comandos na conexão ativa; fica o resultado do último. DELETE ou UPDATE sem WHERE
     /// pede confirmação antes (um esquecimento apagaria a tabela inteira).
     fn rodar(&mut self, comandos: Vec<String>) -> Task<Msg> {
+        if self.executando {
+            return Task::none();
+        }
+        let conexao = self.item_ativo().map(|i| i.conexao.clone());
+        let muda = comandos.iter().any(|c| featherdb_core::muda_dados(c));
+        if muda && conexao.as_ref().is_some_and(|c| c.somente_leitura) {
+            self.erro = Some(tr("Esta conexão é só leitura: comandos que mudam dados não rodam. Para mudar, edite a conexão e desligue Só leitura.").into());
+            return Task::none();
+        }
         if let Some(c) = comandos.iter().find_map(|c| featherdb_core::sem_where(c)) {
-            if !self.executando {
-                self.perigo = Some((comandos, c));
-            }
+            self.perigo = Some((comandos, c));
+            return Task::none();
+        }
+        if muda && conexao.is_some_and(|c| c.producao) {
+            self.perigo = Some((comandos, PRODUCAO));
             return Task::none();
         }
         self.rodar_conferido(comandos)
@@ -512,6 +536,20 @@ impl App {
         self.gravar_rascunho();
         self.rodada += 1;
         let rodada = self.rodada;
+        let mut comandos = comandos;
+        self.transacao_nova = None;
+        // Commit manual: o primeiro comando que muda dados abre a transação; COMMIT/ROLLBACK fecham.
+        let manual = self.itens.iter().find(|i| i.id == alvo.0).is_some_and(|i| i.manual && i.conexao.tipo.tem_transacao());
+        let fecha = comandos.iter().any(|c| matches!(c.trim().split_whitespace().next().map(str::to_ascii_lowercase).as_deref(), Some("commit" | "rollback" | "end")));
+        if let Some(b) = self.base_mut(&alvo) {
+            if fecha {
+                b.transacao = false;
+            } else if manual && !b.transacao && comandos.iter().any(|c| featherdb_core::muda_dados(c)) {
+                b.transacao = true;
+                comandos.insert(0, "BEGIN".into());
+                self.transacao_nova = Some(alvo.clone());
+            }
+        }
         self.ddl_em = comandos.iter().any(|c| featherdb_core::muda_estrutura(c)).then(|| alvo.clone());
         // O cancelador sai antes de a consulta pegar a conexão (enquanto roda, ela fica ocupada).
         self.cancelar = banco.try_lock().ok().and_then(|b| b.cancelador());
@@ -577,7 +615,7 @@ fn rodar_comandos(b: &mut Box<dyn Banco>, comandos: &[String], conexao: Option<&
 
 impl Item {
     fn novo(id: u64, conexao: Conexao) -> Item {
-        Item { id, conexao, senha: None, principal: Base::default(), bancos: None, bases: HashMap::new() }
+        Item { id, conexao, senha: None, principal: Base::default(), bancos: None, bases: HashMap::new(), manual: false }
     }
 
     /// Postgres ou MySQL sem banco escolhido: a árvore mostra os bancos do servidor.
@@ -898,6 +936,24 @@ impl pelicano::App for App {
                     }
                 }
             }
+            Msg::AutoCommit => {
+                let aberta = self.ativa.as_ref().and_then(|a| self.base(a)).is_some_and(|b| b.transacao);
+                if aberta {
+                    self.aviso = tr("Faça Commit ou Rollback antes de voltar ao auto-commit.").to_owned();
+                    return Task::none();
+                }
+                if let Some(id) = self.ativa.as_ref().map(|a| a.0) {
+                    if let Some(i) = self.item(id) {
+                        i.manual = !i.manual;
+                    }
+                }
+            }
+            Msg::FimTransacao(commit) => {
+                self.tabela_aberta = None;
+                let r = self.rodar_conferido(vec![if commit { "COMMIT" } else { "ROLLBACK" }.into()]);
+                self.aviso = if commit { tr("Mudanças gravadas (Commit).") } else { tr("Mudanças desfeitas (Rollback).") }.to_owned();
+                return r;
+            }
             Msg::Parar => {
                 if !self.executando {
                     return Task::none();
@@ -1033,6 +1089,11 @@ impl pelicano::App for App {
                     return Task::none();
                 }
                 // Rodou CREATE/ALTER/DROP: a árvore lê o catálogo de novo (tabela nova aparece sem clicar em Atualizar).
+                if let (Err(_), Some(a)) = (&r, self.transacao_nova.take()) {
+                    if let Some(b) = self.base_mut(&a) {
+                        b.transacao = false;
+                    }
+                }
                 let arvore = match (&r, self.ddl_em.take()) {
                     (Ok(_), Some(alvo)) => Task::done(Msg::Atualizar(alvo)),
                     _ => Task::none(),
@@ -1165,14 +1226,20 @@ impl pelicano::App for App {
                 .sobre(janela);
         }
         if let Some((comandos, palavra)) = &self.perigo {
-            let sql = comandos.iter().find(|c| featherdb_core::sem_where(c).is_some()).map_or("", String::as_str);
+            let sql = comandos.iter().find(|c| featherdb_core::sem_where(c).is_some() || (*palavra == PRODUCAO && featherdb_core::muda_dados(c))).map_or("", String::as_str);
             let previa: String = sql.chars().take(300).collect();
+            let aviso = if *palavra == PRODUCAO {
+                tr("Esta conexão é de produção e o comando muda dados.").to_owned()
+            } else {
+                trf("Este {} não tem WHERE: vale para todas as linhas da tabela.", &[palavra])
+            };
+            let titulo = if *palavra == PRODUCAO { tr("Mudar dados em produção?") } else { tr("Mexer na tabela inteira?") };
             let corpo = column![
-                text(trf("Este {} não tem WHERE: vale para todas as linhas da tabela.", &[palavra])).size(13),
+                text(aviso).size(13),
                 container(text(previa).size(12).font(Font::MONO)).padding(10).width(Length::FILL).style(|_| Style::default().background(COR_PAINEL_FAIXA()).border(Border::rounded(6.0))),
             ]
             .spacing(10);
-            return feather_ui::dialogo::Dialogo::new(tr("Mexer na tabela inteira?"), corpo)
+            return feather_ui::dialogo::Dialogo::new(titulo, corpo)
                 .icone("alert-triangle")
                 .largura(480.0)
                 .ao_fechar(Msg::ConfirmarPerigo(false))
@@ -1456,10 +1523,19 @@ impl App {
         let onde: Element<'_, Msg> = match self.item_ativo() {
             Some(i) => {
                 let banco = self.ativa.as_ref().and_then(|a| a.1.clone()).unwrap_or_default();
-                row![selo(i.conexao.tipo), text(i.conexao.rotulo()).size(13).font(Font::SEMIBOLD), text(if banco.is_empty() { String::new() } else { format!("/ {banco}") }).size(13).color(COR_TEXTO_MUTED())]
+                let mut r = row![selo(i.conexao.tipo), text(i.conexao.rotulo()).size(13).font(Font::SEMIBOLD), text(if banco.is_empty() { String::new() } else { format!("/ {banco}") }).size(13).color(COR_TEXTO_MUTED())]
                     .spacing(8)
-                    .align(Align::Center)
-                    .into()
+                    .align(Align::Center);
+                if i.conexao.producao {
+                    r = r.push(marcador(tr("produção"), COR_ERRO()));
+                }
+                if i.conexao.somente_leitura {
+                    r = r.push(marcador(tr("só leitura"), COR_TEXTO_MUTED()));
+                }
+                if i.conexao.tipo.tem_transacao() && !i.conexao.somente_leitura {
+                    r = r.push(Space::new(6, 0)).push(self.controle_transacao(i));
+                }
+                r.into()
             }
             None => text(tr("Nenhuma conexão escolhida")).size(13).color(COR_TEXTO_MUTED()).into(),
         };
@@ -1707,6 +1783,35 @@ impl App {
         let fora = mouse_area(Space::new(Length::FILL, Length::FILL)).on_press(Msg::FecharMenu).on_right_press(Msg::FecharMenu);
         let lugar = container(pelicano::opaque(painel)).padding(pelicano::Padding { top: y, left: x, right: 0.0, bottom: 0.0 });
         pelicano::stack![base, fora, lugar].into()
+    }
+}
+
+/// Etiqueta de aviso ao lado do nome da conexão (produção em vermelho, só leitura apagada).
+fn marcador<'a>(texto: &str, cor: pelicano::Color) -> Element<'a, Msg> {
+    container(text(texto.to_owned()).size(11).font(Font::SEMIBOLD).color(cor)).padding([2, 7]).style(move |_| Style::default().border(Border::rounded(8.0).color(cor, 1.0))).into()
+}
+
+impl App {
+    /// Auto-commit ou manual; no manual, Commit e Rollback (ativos com transação aberta).
+    fn controle_transacao<'a>(&'a self, i: &'a Item) -> Element<'a, Msg> {
+        let aberta = self.ativa.as_ref().and_then(|a| self.base(a)).is_some_and(|b| b.transacao);
+        let modo = button(text(if i.manual { tr("Commit manual") } else { tr("Auto-commit") }).size(12))
+            .padding([4, 9])
+            .style(estilo_botao_pequeno(i.manual))
+            .on_press(Msg::AutoCommit);
+        let mut r = row![tooltip(modo, tr("Auto-commit grava cada comando na hora. No manual, as mudanças só ficam depois do Commit."), TooltipPosition::Bottom).padding([4, 8]).style(estilo_dica)]
+            .spacing(4)
+            .align(Align::Center);
+        if i.manual {
+            let pode = aberta && !self.executando;
+            r = r
+                .push(button(text("Commit").size(12).font(Font::SEMIBOLD)).padding([4, 10]).style(estilo_botao_primario).on_press_maybe(pode.then_some(Msg::FimTransacao(true))))
+                .push(button(text("Rollback").size(12)).padding([4, 10]).style(estilo_botao_secundario).on_press_maybe(pode.then_some(Msg::FimTransacao(false))));
+            if aberta {
+                r = r.push(marcador(tr("transação aberta"), COR_AZUL_ACENTO()));
+            }
+        }
+        r.into()
     }
 }
 
