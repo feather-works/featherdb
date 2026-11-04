@@ -97,6 +97,23 @@ impl Banco for My {
         Ok(format!("{sql};\n"))
     }
 
+    fn funcoes(&mut self) -> Result<Vec<crate::Funcao>, String> {
+        let r = self.executar(
+            "SELECT routine_schema, routine_name, '', routine_name, routine_type FROM information_schema.routines \
+             WHERE routine_schema = DATABASE() ORDER BY 2",
+            usize::MAX,
+        )?;
+        Ok(crate::funcoes_do_catalogo(r, "PROCEDURE"))
+    }
+
+    fn definicao(&mut self, f: &crate::Funcao) -> Result<String, String> {
+        // A terceira coluna do SHOW CREATE FUNCTION/PROCEDURE é o SQL.
+        let tipo = if f.procedimento { "PROCEDURE" } else { "FUNCTION" };
+        let r = self.executar(&format!("SHOW CREATE {tipo} {}", crate::identificador(&f.nome, crate::Tipo::MySql)), 1)?;
+        let sql = r.linhas.into_iter().next().and_then(|l| l.into_iter().nth(2).flatten()).ok_or("Sem permissão para ver o código desta função.")?;
+        Ok(format!("{sql};\n"))
+    }
+
     fn dicionario(&mut self) -> Result<Vec<crate::CampoDe>, String> {
         crate::dicionario_do_catalogo(
             self,

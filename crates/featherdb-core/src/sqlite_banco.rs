@@ -61,7 +61,7 @@ impl Banco for Lite {
         let r = self.executar("SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY name", usize::MAX)?;
         Ok(r.linhas
             .into_iter()
-            .map(|l| Tabela { esquema: String::new(), nome: l[0].clone().unwrap_or_default(), visao: l[1].as_deref() == Some("view") })
+            .map(|l| Tabela { nome: l[0].clone().unwrap_or_default(), visao: l[1].as_deref() == Some("view"), ..Default::default() })
             .collect())
     }
 

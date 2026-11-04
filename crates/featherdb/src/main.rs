@@ -11,6 +11,7 @@ mod formulario;
 mod grade;
 mod historico;
 mod idioma;
+mod objetos;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -54,6 +55,9 @@ struct Base {
     /// Todas as colunas do banco, para a busca e para exportar (lido na primeira busca).
     dicionario: Option<Vec<CampoDe>>,
     lendo_dicionario: bool,
+    /// Funções e procedimentos (Postgres e MySQL) e se a lista está aberta na árvore.
+    funcoes: Vec<featherdb_core::Funcao>,
+    funcoes_abertas: bool,
 }
 
 /// Uma conexão da lista, com o que está aberto dela nesta sessão.
@@ -113,6 +117,7 @@ enum Msg {
     Formatar,
     Sugestao(completar::Tecla),
     Abas(abas::AcaoAba),
+    Objeto(objetos::AcaoObjeto),
     Celula(celulas::AcaoCelula),
     Explicar,
     EditarColuna(Option<Coluna>),
@@ -154,6 +159,8 @@ struct App {
     /// As abas de consulta guardadas; a da tela (`aba_atual`) mora nos campos abaixo.
     consultas: Vec<abas::Consulta>,
     aba_atual: usize,
+    /// O arquivo `.sql` da aba (depois de abrir ou salvar): Ctrl+S grava nele.
+    arquivo_sql: Option<std::path::PathBuf>,
     itens: Vec<Item>,
     proximo_id: u64,
     ativa: Option<Alvo>,
@@ -255,6 +262,7 @@ impl App {
         App {
             consultas: rascunhos.iter().map(|t| abas::Consulta::nova(t, primeira.clone())).collect(),
             aba_atual: 0,
+            arquivo_sql: None,
             proximo_id: itens.len() as u64 + 1,
             ativa: itens.first().map(|i| (i.id, None)),
             itens,
@@ -689,6 +697,7 @@ impl pelicano::App for App {
                     if let Some(b) = self.base_mut(&alvo) {
                         b.tabelas = t;
                     }
+                    return self.carregar_funcoes(alvo);
                 }
                 Err(e) => self.erro = Some(trf("Não foi possível ler as tabelas: {}", &[&e])),
             },
@@ -916,7 +925,9 @@ impl pelicano::App for App {
                 let texto = if tipo == Tipo::MongoDb {
                     format!("db.getCollection({:?}).find({{}})\n", t.nome)
                 } else {
-                    format!("SELECT {colunas}\nFROM {}\nWHERE ;\n", t.qualificado(tipo))
+                    // Já roda como está: o WHERE vem comentado, para a pessoa tirar o -- e completar.
+                    let limite = if tipo == Tipo::Odbc { String::new() } else { format!("\nLIMIT {LIMITE_LINHAS}") };
+                    format!("SELECT {colunas}\nFROM {}\n-- WHERE coluna = valor{limite};\n", t.qualificado(tipo))
                 };
                 self.editor.insert(&texto);
                 self.gravar_rascunho();
@@ -949,6 +960,7 @@ impl pelicano::App for App {
             }
             Msg::Sugestao(t) => self.tecla_sugestao(t),
             Msg::Abas(a) => return self.update_abas(a),
+            Msg::Objeto(a) => return self.update_objeto(a),
             Msg::Celula(a) => return self.update_celula(a),
             Msg::ExecutarTudo => {
                 self.tabela_aberta = None;
@@ -1169,6 +1181,9 @@ pub(crate) fn atalho(key: &Key, m: Modifiers) -> Option<Msg> {
         Key::Character(c) if m.control_key() && m.shift_key() && c.eq_ignore_ascii_case("f") => Some(Msg::Formatar),
         Key::Character(c) if m.control_key() && c.eq_ignore_ascii_case("t") => Some(Msg::Abas(abas::AcaoAba::Nova)),
         Key::Character(c) if m.control_key() && c.eq_ignore_ascii_case("w") => Some(Msg::Abas(abas::AcaoAba::FecharAtual)),
+        Key::Character(c) if m.control_key() && m.shift_key() && c.eq_ignore_ascii_case("s") => Some(Msg::Objeto(objetos::AcaoObjeto::SalvarComo)),
+        Key::Character(c) if m.control_key() && c.eq_ignore_ascii_case("s") => Some(Msg::Objeto(objetos::AcaoObjeto::Salvar)),
+        Key::Character(c) if m.control_key() && c.eq_ignore_ascii_case("o") => Some(Msg::Objeto(objetos::AcaoObjeto::Abrir)),
         Key::Character(c) if m.control_key() && c.eq_ignore_ascii_case("h") => Some(Msg::Historico(Some(String::new()))),
         _ => None,
     }
@@ -1226,7 +1241,11 @@ impl App {
             let linha = row![
                 Space::new(recuo + if varios { 22.0 } else { 14.0 }, 0),
                 icone_tabler(if aberta { SETA_BAIXO } else { SETA_DIREITA }, 12.0).color(COR_TEXTO_MUTED()),
-                if t.visao { icone_tabler(VISAO, 15.0).color(COR_TEXTO_MUTED()) } else { feather_ui::icones::icone_traco("table", 15.0).color(COR_TEXTO_MUTED()) },
+                match (t.materializada, t.visao) {
+                    (true, _) => feather_ui::icones::icone_traco("device-floppy", 15.0).color(COR_TEXTO_MUTED()),
+                    (_, true) => icone_tabler(VISAO, 15.0).color(COR_TEXTO_MUTED()),
+                    _ => feather_ui::icones::icone_traco("table", 15.0).color(COR_TEXTO_MUTED()),
+                },
                 text(nome).size(12.5).no_wrap().ellipsis(),
             ]
             .width(Length::FILL)
@@ -1258,6 +1277,7 @@ impl App {
             let resto = achadas.len() - MAX_ARVORE;
             saida.push(container(text(trf("mais {}; use o filtro para achar", &[&resto])).size(12).color(COR_TEXTO_MUTED())).padding([4, 24]).into());
         }
+        saida.extend(self.arvore_funcoes(&alvo, &base.funcoes, base.funcoes_abertas, recuo));
         saida
     }
 
@@ -1443,6 +1463,7 @@ impl App {
         row![
             onde,
             horizontal_space(),
+            self.acoes_arquivo(),
             formatar,
             explicar,
             historico,
@@ -1576,6 +1597,23 @@ impl App {
         };
         let traco = |n: &str| feather_ui::icones::icone_traco(n, 16.0);
         let separador = || container(container(Space::new(Length::FILL, 1)).style(|_| Style::default().background(COR_BORDA_SUAVE()))).padding([4, 8]).width(Length::FILL);
+        // Modelos para criar objetos no banco: abrem numa aba nova, prontos para mudar e rodar.
+        let modelos = |mut lista: pelicano::Column<'a, Msg>, alvo: Alvo| {
+            use objetos::{AcaoObjeto::Modelo as M, Modelo};
+            let tipo = self.tipo(alvo.0);
+            if tipo == Tipo::MongoDb {
+                return lista;
+            }
+            let m = |x| Some(Msg::Objeto(M(alvo.clone(), x)));
+            lista = lista.push(item(icone_tabler(VISAO, 16.0), tr("Nova view…"), m(Modelo::View)));
+            if tipo == Tipo::Postgres {
+                lista = lista.push(item(traco("device-floppy"), tr("Nova view materializada…"), m(Modelo::Materializada)));
+            }
+            if objetos::tem_funcoes(tipo) {
+                lista = lista.push(item(traco("math-function"), tr("Nova função…"), m(Modelo::Funcao)));
+            }
+            lista.push(separador())
+        };
         let mut lista = column![].spacing(1);
         match menu {
             Menu::Conexao(id) => {
@@ -1586,7 +1624,11 @@ impl App {
                     .push(if ligada { item(icone_tabler(DESCONECTAR, 16.0), tr("Desconectar"), Some(Msg::Desconectar(id))) } else { item(traco("player-play"), tr("Conectar"), Some(Msg::Conectar(id))) })
                     .push(item(traco("refresh"), tr("Atualizar tabelas"), ligada.then_some(Msg::Atualizar((id, None)))))
                     .push(item(traco("file-export"), tr("Exportar o dicionário do banco (CSV)"), (ligada && !i.servidor()).then_some(Msg::ExportarDicionario((id, None)))))
-                    .push(separador())
+                    .push(separador());
+                if !i.servidor() {
+                    lista = modelos(lista, (id, None));
+                }
+                lista = lista
                     .push(item(traco("pencil"), tr("Editar conexão"), Some(Msg::Editar(id))))
                     .push(item(traco("trash"), tr("Excluir conexão"), Some(Msg::Excluir(id))));
             }
@@ -1595,7 +1637,9 @@ impl App {
                 let aberto = self.base(&alvo).is_some_and(|b| b.banco.is_some());
                 lista = lista
                     .push(item(traco("refresh"), tr("Atualizar tabelas"), aberto.then_some(Msg::Atualizar(alvo.clone()))))
-                    .push(item(traco("file-export"), tr("Exportar o dicionário do banco (CSV)"), aberto.then_some(Msg::ExportarDicionario(alvo))));
+                    .push(item(traco("file-export"), tr("Exportar o dicionário do banco (CSV)"), aberto.then_some(Msg::ExportarDicionario(alvo.clone()))))
+                    .push(separador());
+                lista = modelos(lista, alvo);
             }
             Menu::Tabela(alvo, t) => {
                 let (id, tipo) = (alvo.clone(), self.tipo(alvo.0));
@@ -1605,7 +1649,11 @@ impl App {
                     .push(item(traco("player-play"), if mongo { tr("Ver os documentos (find)") } else { tr("Ver os dados (SELECT *)") }, Some(Msg::AbrirTabela(id.clone(), t.clone()))))
                     .push(item(traco("columns"), if mongo { tr("Ver os campos") } else { tr("Ver a estrutura") }, Some(Msg::VerEstrutura(id.clone(), t.clone()))))
                     .push(item(traco("pencil"), if mongo { tr("Escrever o find no editor") } else { tr("Escrever o SELECT no editor") }, Some(Msg::EscreverSelect(id.clone(), t.clone()))))
-                    .push(item(traco("math-function"), if mongo { tr("Contar os documentos") } else { tr("Contar as linhas (COUNT)") }, Some(Msg::Contar(id.clone(), t.clone()))))
+                    .push(item(traco("math-function"), if mongo { tr("Contar os documentos") } else { tr("Contar as linhas (COUNT)") }, Some(Msg::Contar(id.clone(), t.clone()))));
+                if t.materializada {
+                    lista = lista.push(item(traco("refresh"), tr("Atualizar os dados (REFRESH)"), Some(Msg::Objeto(objetos::AcaoObjeto::Atualizar(id.clone(), t.clone())))));
+                }
+                lista = lista
                     .push(separador())
                     .push(item(
                         traco("columns"),
@@ -1622,7 +1670,7 @@ impl App {
             }
         }
         const LARGURA: f32 = 270.0;
-        const ALTURA: f32 = 300.0;
+        const ALTURA: f32 = 420.0;
         let painel = container(lista).width(LARGURA).padding(5).style(|_| {
             Style::default()
                 .background(COR_PAINEL())

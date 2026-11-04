@@ -315,7 +315,7 @@ impl App {
             ]
             .spacing(6)
             .align(Align::Center);
-            let t = Tabela { esquema: c.esquema.clone(), nome: c.tabela.clone(), visao: false };
+            let t = Tabela { esquema: c.esquema.clone(), nome: c.tabela.clone(), ..Default::default() };
             lista = lista.push(button(linha).padding([4, 6]).width(Length::FILL).style(estilo_botao_pequeno(false)).on_press(Msg::VerEstrutura(alvo, t)));
         }
         if total > 40 {
@@ -346,7 +346,7 @@ mod testes {
         let original = Coluna { nome: "nome".into(), tipo: "varchar(50)".into(), nulo: true, padrao: None, chave: false };
         let mut e = EdicaoColuna {
             alvo: (1, None),
-            tabela: Tabela { esquema: "public".into(), nome: "cliente".into(), visao: false },
+            tabela: Tabela { esquema: "public".into(), nome: "cliente".into(), ..Default::default() },
             nome: "nome".into(),
             tipo: "varchar(50)".into(),
             nulo: true,

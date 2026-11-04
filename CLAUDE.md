@@ -39,6 +39,12 @@ outro projeto) e `../feather-ui-pelicano/GUIA-JANELAS.md` (ícones só Tabler, c
   começo da linha até o cursor com `Content::edit_lines`. Formatar: `featherdb_core::formatar`.
 - TLS (`featherdb-core/src/tls.rs`): conferir (raízes webpki + CA escolhida) ou só criptografar (verificador que
   aceita o certificado); certificado e chave do cliente em PEM. Campos 10 a 13 de `conexoes.txt`.
+- Objetos (`objetos.rs`): `Banco::funcoes`/`definicao` (Postgres pelo `pg_proc` sem as de extensão e de `pg_temp`;
+  MySQL pelo `information_schema.routines`); views materializadas do Postgres vêm do `pg_matviews`
+  (`Tabela::materializada`). Modelos de view/materializada/função abrem em aba nova (`App::nova_aba_com`).
+  Abrir/salvar `.sql`: `arquivo_sql` por aba (troca junto em `abas::trocar`). O corpo de função do MySQL com
+  `BEGIN … END` não roda pelo editor (o `;` de dentro corta o comando; não há `DELIMITER`).
+- Disco cheio em 04/11/2026 (o `target/debug` tinha 17 GB): testar com `cargo test --release`, uma pasta só.
 - SQL Server nativo ficou de fora: o `tiberius` puxa `aws-lc` (C, cmake) pelo `tokio-rustls`. Hoje é por ODBC.
 - A senha nunca vai para arquivo: "Lembrar a senha" (ligado por padrão, pedido do usuário em 04/11/2026)
   guarda no cofre do sistema (`featherdb-core::cofre`, crate `keyring`; Secret Service no Linux), só depois

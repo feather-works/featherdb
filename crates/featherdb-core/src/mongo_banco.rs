@@ -275,7 +275,7 @@ impl Banco for Mongo {
     fn tabelas(&mut self) -> Result<Vec<Tabela>, String> {
         let mut nomes = self.banco()?.list_collection_names().run().map_err(|e| erro(&e))?;
         nomes.sort();
-        Ok(nomes.into_iter().filter(|n| !n.starts_with("system.")).map(|nome| Tabela { esquema: String::new(), nome, visao: false }).collect())
+        Ok(nomes.into_iter().filter(|n| !n.starts_with("system.")).map(|nome| Tabela { nome, ..Default::default() }).collect())
     }
 
     /// O Mongo não tem colunas fixas: os campos dos primeiros 50 documentos, com o tipo do primeiro que aparece.

@@ -213,7 +213,7 @@ mod testes {
     #[test]
     fn opcoes_por_prefixo_e_pela_tabela() {
         let c = |n: &str, de: &str| CampoDe { esquema: String::new(), tabela: de.into(), coluna: n.into(), tipo: "text".into() };
-        let t = |n: &str| Tabela { esquema: String::new(), nome: n.into(), visao: false };
+        let t = |n: &str| Tabela { nome: n.into(), ..Default::default() };
         let tabelas = vec![t("pedidos"), t("pessoas")];
         let colunas = vec![c("pedido_id", "itens"), c("nome", "pessoas"), c("nome_fantasia", "lojas")];
         let nomes = |v: Vec<Opcao>| v.into_iter().map(|o| o.nome).collect::<Vec<_>>();

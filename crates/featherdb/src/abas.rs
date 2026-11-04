@@ -29,6 +29,7 @@ pub(crate) struct Consulta {
     filtro_grade: String,
     visiveis: Vec<usize>,
     celulas: crate::celulas::Celulas,
+    arquivo_sql: Option<std::path::PathBuf>,
 }
 
 impl Consulta {
@@ -48,6 +49,7 @@ impl Consulta {
             filtro_grade: String::new(),
             visiveis: Vec::new(),
             celulas: Default::default(),
+            arquivo_sql: None,
         }
     }
 }
@@ -83,6 +85,7 @@ impl App {
         std::mem::swap(&mut self.filtro_grade, &mut c.filtro_grade);
         std::mem::swap(&mut self.visiveis, &mut c.visiveis);
         std::mem::swap(&mut self.celulas, &mut c.celulas);
+        std::mem::swap(&mut self.arquivo_sql, &mut c.arquivo_sql);
     }
 
     /// Mostra a aba `i`. O lugar da aba da tela em `consultas` fica com um vazio enquanto ela está à mostra.
@@ -96,6 +99,22 @@ impl App {
         self.trocar(&mut c);
         self.consultas[self.aba_atual] = c;
         self.aba_atual = i;
+    }
+
+    /// Abre uma aba nova já com o texto (modelo, função, arquivo) e a conexão. Devolve se abriu
+    /// (não abre com consulta rodando nem passando do máximo; o aviso diz por quê).
+    pub(crate) fn nova_aba_com(&mut self, texto: &str, ativa: Option<Alvo>) -> bool {
+        let antes = self.aba_atual;
+        let _ = self.update_abas(AcaoAba::Nova);
+        if self.aba_atual == antes {
+            return false;
+        }
+        self.editor.set_text(texto);
+        if ativa.is_some() {
+            self.ativa = ativa;
+        }
+        self.gravar_rascunho();
+        true
     }
 
     pub(crate) fn update_abas(&mut self, a: AcaoAba) -> Task<Msg> {
@@ -162,9 +181,12 @@ impl App {
                 let i = self.itens.iter().find(|i| i.id == *id)?;
                 Some(b.clone().unwrap_or_else(|| i.conexao.rotulo()))
             });
+            // Com arquivo .sql, a aba leva o nome dele.
+            let arquivo = if atual { self.arquivo_sql.as_ref() } else { self.consultas[i].arquivo_sql.as_ref() };
+            let titulo = arquivo.and_then(|a| a.file_name()).map_or_else(|| trf("Consulta {}", &[&(i + 1)]), |n| n.to_string_lossy().into_owned());
             let nome = match onde {
-                Some(o) => format!("{} · {o}", trf("Consulta {}", &[&(i + 1)])),
-                None => trf("Consulta {}", &[&(i + 1)]),
+                Some(o) => format!("{titulo} · {o}"),
+                None => titulo,
             };
             let fechar = button(feather_ui::icones::icone_traco("x", 12.0).color(COR_TEXTO_MUTED())).padding(2).style(estilo_botao_pequeno(false)).on_press(Msg::Abas(AcaoAba::Fechar(i)));
             let rotulo = button(text(nome).size(12.5).width(Length::Shrink).font(if atual { Font::SEMIBOLD } else { Font::DEFAULT }).no_wrap().ellipsis()).padding([4, 6]).style(estilo_botao_pequeno(atual)).on_press(Msg::Abas(AcaoAba::Ir(i)));

@@ -194,11 +194,25 @@ pub struct Resultado {
 }
 
 /// Uma tabela ou visão do catálogo.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Tabela {
     pub esquema: String,
     pub nome: String,
     pub visao: bool,
+    /// Visão materializada (Postgres): guarda o resultado e só muda com REFRESH. Também tem `visao`.
+    pub materializada: bool,
+}
+
+/// Uma função ou procedimento do banco (o corpo é lido só quando a pessoa abre).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Funcao {
+    pub esquema: String,
+    pub nome: String,
+    /// Os parâmetros, como o banco escreve (`a integer, b text`).
+    pub argumentos: String,
+    /// Como o banco acha esta (o oid no Postgres; o nome no MySQL).
+    pub id: String,
+    pub procedimento: bool,
 }
 
 impl Tabela {
@@ -266,6 +280,16 @@ pub trait Banco: Send {
         Ok(Vec::new())
     }
 
+    /// As funções e procedimentos criados pela pessoa (Postgres e MySQL; os outros não listam).
+    fn funcoes(&mut self) -> Result<Vec<Funcao>, String> {
+        Ok(Vec::new())
+    }
+
+    /// O SQL que cria a função, para abrir no editor e mudar.
+    fn definicao(&mut self, _f: &Funcao) -> Result<String, String> {
+        Err("Este banco não mostra o código das funções.".into())
+    }
+
     /// As colunas da tabela, na ordem dela.
     fn colunas(&mut self, t: &Tabela) -> Result<Vec<Coluna>, String>;
 
@@ -295,9 +319,20 @@ pub(crate) fn tabelas_do_catalogo(b: &mut dyn Banco, sql: &str) -> Result<Vec<Ta
         .into_iter()
         .map(|l| {
             let campo = |i: usize| l.get(i).cloned().flatten().unwrap_or_default();
-            Tabela { esquema: campo(0), nome: campo(1), visao: campo(2).contains("VIEW") }
+            Tabela { esquema: campo(0), nome: campo(1), visao: campo(2).contains("VIEW"), materializada: campo(2).contains("MATERIALIZED") }
         })
         .collect())
+}
+
+/// Funções de uma consulta que devolve esquema, nome, argumentos, id e o tipo (`marca_procedimento` = procedimento).
+pub(crate) fn funcoes_do_catalogo(r: Resultado, marca_procedimento: &str) -> Vec<Funcao> {
+    r.linhas
+        .into_iter()
+        .map(|l| {
+            let campo = |i: usize| l.get(i).cloned().flatten().unwrap_or_default();
+            Funcao { esquema: campo(0), nome: campo(1), argumentos: campo(2), id: campo(3), procedimento: campo(4) == marca_procedimento }
+        })
+        .collect()
 }
 
 /// Colunas de uma consulta ao catálogo que devolve nome, tipo, aceita vazio (YES/NO), padrão e chave (S/N).
@@ -651,6 +686,19 @@ mod testes {
             println!("{ddl}");
             assert!(ddl.starts_with("CREATE"));
         }
+        let funcoes = b.funcoes().unwrap();
+        println!("{} funções: {:?}", funcoes.len(), funcoes.iter().take(5).map(|f| format!("{}({})", f.nome, f.argumentos)).collect::<Vec<_>>());
+        if let Some(f) = funcoes.first() {
+            let def = b.definicao(f).unwrap();
+            println!("{}", def.lines().take(3).collect::<Vec<_>>().join("\n"));
+            assert!(def.starts_with("CREATE"));
+        }
+        // Função temporária (some ao desconectar): o código dela volta como CREATE.
+        b.executar("create function pg_temp.featherdb_teste(a int) returns int language sql as $$ select a + 1 $$", 0).unwrap();
+        let oid = b.executar("select 'pg_temp.featherdb_teste(int)'::regprocedure::oid::text", 1).unwrap().linhas[0][0].clone().unwrap();
+        let f = Funcao { esquema: String::new(), nome: "featherdb_teste".into(), argumentos: "a integer".into(), id: oid, procedimento: false };
+        assert!(b.definicao(&f).unwrap().contains("CREATE OR REPLACE FUNCTION"));
+        println!("materializadas: {:?}", tabelas.iter().filter(|t| t.materializada).map(|t| &t.nome).collect::<Vec<_>>());
         // Parar: o pg_sleep de 10 s volta cancelado em vez de esperar.
         let parar = b.cancelador().unwrap();
         let t = std::thread::spawn(move || {
@@ -714,7 +762,7 @@ mod testes {
         assert_eq!(r.linhas, vec![vec![Some("1".into()), Some("Ana".into()), Some("9.5".into())]]);
         assert!(r.cortado);
         let t = b.tabelas().unwrap();
-        assert_eq!(t, vec![Tabela { esquema: String::new(), nome: "pessoas".into(), visao: false }]);
+        assert_eq!(t, vec![Tabela { nome: "pessoas".into(), ..Default::default() }]);
         let cols = b.colunas(&t[0]).unwrap();
         assert_eq!(cols[0], Coluna { nome: "id".into(), tipo: "INTEGER".into(), nulo: true, padrao: None, chave: true });
         assert_eq!((cols[1].nome.as_str(), cols[1].tipo.as_str()), ("nome", "TEXT"));

@@ -295,7 +295,7 @@ impl Banco for Odbc {
             .into_iter()
             .map(|l| {
                 let c = |i: usize| l.get(i).cloned().flatten().unwrap_or_default();
-                Tabela { esquema: c(1), nome: c(2), visao: c(3).contains("VIEW") }
+                Tabela { esquema: c(1), nome: c(2), visao: c(3).contains("VIEW"), ..Default::default() }
             })
             .collect())
     }

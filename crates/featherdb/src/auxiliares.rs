@@ -74,6 +74,8 @@ pub(crate) static VERSOES: [novidades::Versao; 1] = [novidades::Versao {
         "Aba SQL com o CREATE TABLE da tabela.",
         "Certificados no TLS: só criptografar, autoridade (CA) da empresa e certificado do cliente.",
         "A conexão que caiu é refeita sozinha.",
+        "Abrir e salvar arquivos .sql (Ctrl+O, Ctrl+S).",
+        "Funções e views materializadas na árvore; modelos de view, view materializada e função.",
     ],
 }];
 

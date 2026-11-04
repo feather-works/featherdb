@@ -88,10 +88,29 @@ impl Banco for Pg {
         if t.visao {
             let r = self.executar(&format!("SELECT pg_get_viewdef({}::regclass, true)", crate::literal(&nome)), 1)?;
             let corpo = r.linhas.into_iter().next().and_then(|l| l.into_iter().next().flatten()).unwrap_or_default();
-            return Ok(format!("CREATE VIEW {nome} AS\n{}\n", corpo.trim_end()));
+            let tipo = if t.materializada { "MATERIALIZED VIEW" } else { "VIEW" };
+            return Ok(format!("CREATE {tipo} {nome} AS\n{}\n", corpo.trim_end()));
         }
         let colunas = self.colunas(t)?;
         Ok(crate::estrutura::ddl(crate::Tipo::Postgres, &nome, &colunas))
+    }
+
+    fn funcoes(&mut self) -> Result<Vec<crate::Funcao>, String> {
+        // Só as da pessoa: sem as do sistema e sem as que vieram de extensão (o PostGIS tem milhares).
+        let r = self.executar(
+            "SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid), p.oid::text, p.prokind::text \
+             FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace \
+             WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%' AND p.prokind IN ('f', 'p') \
+             AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e') ORDER BY 1, 2",
+            usize::MAX,
+        )?;
+        Ok(crate::funcoes_do_catalogo(r, "p"))
+    }
+
+    fn definicao(&mut self, f: &crate::Funcao) -> Result<String, String> {
+        let oid: u32 = f.id.parse().map_err(|_| "função sem oid".to_owned())?;
+        let r = self.executar(&format!("SELECT pg_get_functiondef({oid})"), 1)?;
+        Ok(r.linhas.into_iter().next().and_then(|l| l.into_iter().next().flatten()).unwrap_or_default().trim_end().to_owned() + ";\n")
     }
 
     fn dicionario(&mut self) -> Result<Vec<crate::CampoDe>, String> {
@@ -110,8 +129,11 @@ impl Banco for Pg {
     fn tabelas(&mut self) -> Result<Vec<crate::Tabela>, String> {
         crate::tabelas_do_catalogo(
             self,
+        // As visões materializadas não aparecem no information_schema: vêm do pg_matviews.
         "SELECT table_schema, table_name, table_type FROM information_schema.tables \
-         WHERE table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY 1, 2",
+         WHERE table_schema NOT IN ('pg_catalog', 'information_schema') \
+         UNION ALL SELECT schemaname, matviewname, 'MATERIALIZED VIEW' FROM pg_matviews \
+         WHERE schemaname NOT IN ('pg_catalog', 'information_schema') ORDER BY 1, 2",
         )
     }
 }
