@@ -344,5 +344,15 @@
  "As funções do banco (PostgreSQL e MySQL) aparecem na árvore, embaixo das tabelas. Clique numa para abrir o código numa aba e mudar.": "The database functions (PostgreSQL and MySQL) appear in the tree, below the tables. Click one to open its code in a tab and change it.",
  "Abrir e salvar arquivos .sql (Ctrl+O, Ctrl+S).": "Open and save .sql files (Ctrl+O, Ctrl+S).",
  "Funções e views materializadas na árvore; modelos de view, view materializada e função.": "Functions and materialized views in the tree; templates for view, materialized view and function.",
- "Salvar": "Save"
+ "Salvar": "Save",
+ "Nome novo": "New name",
+ "Renomear {}": "Rename {}",
+ "Renomear": "Rename",
+ "Renomear…": "Rename…",
+ "Rodando {} ({} comandos)…": "Running {} ({} commands)…",
+ "Rodar um arquivo .sql sem abrir": "Run a .sql file without opening it",
+ "Também dá para rodar um arquivo .sql inteiro sem abrir (o botão ao lado do disquete).": "You can also run a whole .sql file without opening it (the button next to the floppy).",
+ "Depois de CREATE, ALTER ou DROP a árvore lê o banco de novo sozinha: a tabela nova já aparece. Botão direito numa tabela também renomeia (mostrando o SQL antes).": "After CREATE, ALTER or DROP the tree reads the database again on its own: the new table shows up. Right-click a table also renames it (showing the SQL first).",
+ "Rodar um arquivo .sql sem abrir; renomear tabela pela árvore; a árvore se atualiza sozinha depois de CREATE, ALTER e DROP.": "Run a .sql file without opening it; rename a table from the tree; the tree refreshes itself after CREATE, ALTER and DROP.",
+ "Ordenar números grandes (ids de 20 dígitos) sem errar.": "Sort large numbers (20-digit ids) correctly."
 }

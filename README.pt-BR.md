@@ -20,7 +20,8 @@ A ideia do DBeaver, sem o peso: abre na hora e usa cerca de 100 MB de memória.
   inteiro. As consultas rodam em segundo plano: a janela nunca trava, e **Parar** cancela.
   Abas de consulta (`Ctrl+T`), cada uma com o seu SQL, conexão e resultado; nomes de tabela e coluna completados ao
   digitar; formatar o SQL (`Ctrl+Shift+F`); plano da consulta (EXPLAIN); histórico (`Ctrl+H`); abrir e salvar arquivos `.sql` (`Ctrl+O`, `Ctrl+S`).
-  Funções (PostgreSQL, MySQL) e views materializadas na árvore, com REFRESH; modelos de view, view materializada e função. `DELETE` ou `UPDATE`
+  Funções (PostgreSQL, MySQL) e views materializadas na árvore, com REFRESH; modelos de view, view materializada e função. Rodar um `.sql` sem abrir;
+  renomear tabela pela árvore; a árvore se atualiza sozinha depois de `CREATE`/`ALTER`/`DROP`. `DELETE` ou `UPDATE`
   sem `WHERE` pergunta antes de rodar. A conexão que caiu é refeita sozinha.
 - **Árvore de tabelas:** sem banco escolhido, lista os bancos do servidor (como o DBeaver); tabelas, visões e colunas com o tipo; clique duplo numa tabela mostra os dados;
   o botão direito tem SELECT, COUNT, copiar o nome, editar e excluir.

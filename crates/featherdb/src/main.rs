@@ -200,6 +200,10 @@ struct App {
     /// Sobe a cada consulta: a resposta de uma consulta abandonada não sobrescreve a atual.
     rodada: u64,
     cancelar: Option<featherdb_core::Cancelar>,
+    /// A consulta rodando muda a estrutura (CREATE/ALTER/DROP): ao terminar, a árvore deste banco é lida de novo.
+    ddl_em: Option<Alvo>,
+    /// Renomeando uma tabela: onde, qual e o nome novo digitado.
+    renomear: Option<(Alvo, Tabela, String)>,
     /// A janela do histórico aberta, com o texto da busca.
     historico: Option<(String, Vec<historico::Entrada>)>,
     /// O texto do filtro da árvore de tabelas.
@@ -291,6 +295,8 @@ impl App {
             perigo: None,
             rodada: 0,
             cancelar: None,
+            ddl_em: None,
+            renomear: None,
             historico: None,
             filtro: String::new(),
             menu: None,
@@ -385,6 +391,60 @@ impl App {
         em_segundo_plano(move || c.conectar(&senha).map(|b| Arc::new(Mutex::new(b))), move |r| Msg::Conectado((id, Some(nome)), r))
     }
 
+    /// A resposta de uma consulta da aba da tela.
+    fn executado(&mut self, r: Result<Resultado, String>, t: Duration, nova: bool) -> Task<Msg> {
+        if nova {
+            self.aviso = tr("A conexão tinha caído e foi refeita.").to_owned();
+        }
+        self.cancelar = None;
+        self.executando = false;
+        self.tempo = Some(t);
+        self.versao_resultado += 1;
+        self.rolagem = (0.0, 0.0);
+        match r {
+            Ok(r) => {
+                self.erro = None;
+                // Foi um ALTER TABLE da aba Estrutura: lê a tabela de novo e volta para a estrutura.
+                if let Some((alvo, t)) = self.recarregar.take() {
+                    let chave = t.qualificado(self.tipo(alvo.0));
+                    if let Some(b) = self.base_mut(&alvo) {
+                        b.colunas.remove(&chave);
+                        b.dicionario = None;
+                    }
+                    self.tabela_aberta = Some((alvo.clone(), t.clone()));
+                    self.aba = Aba::Estrutura;
+                    self.ddl = None;
+                    self.aviso = tr("Coluna alterada.").to_owned();
+                    return self.carregar_colunas(alvo, t, false);
+                }
+                // Gravou as células editadas: lê a tabela de novo para mostrar como ficou no banco.
+                if std::mem::take(&mut self.celulas.recarregar) {
+                    self.celulas = Default::default();
+                    self.aviso = tr("Mudanças salvas no banco.").to_owned();
+                    if let Some((alvo, t)) = self.tabela_aberta.clone() {
+                        return pelicano::App::update(self, Msg::AbrirTabela(alvo, t));
+                    }
+                }
+                self.celulas = Default::default();
+                self.resultado = Some(r);
+                self.ordenacao = None;
+                self.filtro_grade.clear();
+                self.reordenar();
+            }
+            Err(e) => {
+                // Falhou ao gravar: a grade fica e as mudanças continuam marcadas para corrigir e tentar de novo.
+                if std::mem::take(&mut self.celulas.recarregar) {
+                    self.aviso = trf("Não salvou (nada mudou no banco): {}", &[&e]);
+                    return Task::none();
+                }
+                self.recarregar = None;
+                self.aba = Aba::Dados;
+                self.erro = Some(e);
+            }
+        }
+        Task::none()
+    }
+
     /// Refaz a ordem da grade (depois de ordenar, filtrar ou chegar resultado novo).
     fn reordenar(&mut self) {
         self.visiveis = self.resultado.as_ref().map(|r| grade::ordem(r, self.ordenacao, &self.filtro_grade)).unwrap_or_default();
@@ -452,6 +512,7 @@ impl App {
         self.gravar_rascunho();
         self.rodada += 1;
         let rodada = self.rodada;
+        self.ddl_em = comandos.iter().any(|c| featherdb_core::muda_estrutura(c)).then(|| alvo.clone());
         // O cancelador sai antes de a consulta pegar a conexão (enquanto roda, ela fica ocupada).
         self.cancelar = banco.try_lock().ok().and_then(|b| b.cancelador());
         let item = self.itens.iter().find(|i| i.id == alvo.0);
@@ -971,55 +1032,12 @@ impl pelicano::App for App {
                 if rodada != self.rodada {
                     return Task::none();
                 }
-                if nova {
-                    self.aviso = tr("A conexão tinha caído e foi refeita.").to_owned();
-                }
-                self.cancelar = None;
-                self.executando = false;
-                self.tempo = Some(t);
-                self.versao_resultado += 1;
-                self.rolagem = (0.0, 0.0);
-                match r {
-                    Ok(r) => {
-                        self.erro = None;
-                        // Foi um ALTER TABLE da aba Estrutura: lê a tabela de novo e volta para a estrutura.
-                        if let Some((alvo, t)) = self.recarregar.take() {
-                            let chave = t.qualificado(self.tipo(alvo.0));
-                            if let Some(b) = self.base_mut(&alvo) {
-                                b.colunas.remove(&chave);
-                                b.dicionario = None;
-                            }
-                            self.tabela_aberta = Some((alvo.clone(), t.clone()));
-                            self.aba = Aba::Estrutura;
-                            self.ddl = None;
-                            self.aviso = tr("Coluna alterada.").to_owned();
-                            return self.carregar_colunas(alvo, t, false);
-                        }
-                        // Gravou as células editadas: lê a tabela de novo para mostrar como ficou no banco.
-                        if std::mem::take(&mut self.celulas.recarregar) {
-                            self.celulas = Default::default();
-                            self.aviso = tr("Mudanças salvas no banco.").to_owned();
-                            if let Some((alvo, t)) = self.tabela_aberta.clone() {
-                                return self.update(Msg::AbrirTabela(alvo, t));
-                            }
-                        }
-                        self.celulas = Default::default();
-                        self.resultado = Some(r);
-                        self.ordenacao = None;
-                        self.filtro_grade.clear();
-                        self.reordenar();
-                    }
-                    Err(e) => {
-                        // Falhou ao gravar: a grade fica e as mudanças continuam marcadas para corrigir e tentar de novo.
-                        if std::mem::take(&mut self.celulas.recarregar) {
-                            self.aviso = trf("Não salvou (nada mudou no banco): {}", &[&e]);
-                            return Task::none();
-                        }
-                        self.recarregar = None;
-                        self.aba = Aba::Dados;
-                        self.erro = Some(e);
-                    }
-                }
+                // Rodou CREATE/ALTER/DROP: a árvore lê o catálogo de novo (tabela nova aparece sem clicar em Atualizar).
+                let arvore = match (&r, self.ddl_em.take()) {
+                    (Ok(_), Some(alvo)) => Task::done(Msg::Atualizar(alvo)),
+                    _ => Task::none(),
+                };
+                return Task::batch([self.executado(r, t, nova), arvore]);
             }
             Msg::Copiar => {
                 if let Some(r) = &self.resultado {
@@ -1079,6 +1097,9 @@ impl pelicano::App for App {
         if self.historico.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::Historico(None));
         }
+        if self.renomear.is_some() {
+            return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::Objeto(objetos::AcaoObjeto::ConfirmarRenomear(false)));
+        }
         if self.celulas.confirmar.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::Celula(celulas::AcaoCelula::Confirmar(false)));
         }
@@ -1119,6 +1140,9 @@ impl pelicano::App for App {
         }
         if self.historico.is_some() {
             return self.view_historico(janela);
+        }
+        if self.renomear.is_some() {
+            return self.view_renomear(janela);
         }
         if self.celulas.confirmar.is_some() {
             return self.view_salvar_celulas(janela);
@@ -1666,6 +1690,7 @@ impl App {
                         Some(Msg::ExpandirTabela(id.clone(), t.clone())),
                     ))
                     .push(item(traco("copy"), tr("Copiar o nome"), Some(Msg::CopiarTexto(t.qualificado(tipo)))))
+                    .push(item(traco("pencil"), tr("Renomear…"), matches!(tipo, Tipo::Postgres | Tipo::MySql | Tipo::Sqlite).then(|| Msg::Objeto(objetos::AcaoObjeto::Renomear(id.clone(), t.clone())))))
                     .push(item(traco("file-export"), if mongo { tr("Exportar os campos (CSV)") } else { tr("Exportar as colunas (CSV)") }, Some(Msg::ExportarColunasDe(id.clone(), t.clone()))));
             }
         }

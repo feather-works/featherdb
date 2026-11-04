@@ -44,6 +44,8 @@ outro projeto) e `../feather-ui-pelicano/GUIA-JANELAS.md` (ícones só Tabler, c
   (`Tabela::materializada`). Modelos de view/materializada/função abrem em aba nova (`App::nova_aba_com`).
   Abrir/salvar `.sql`: `arquivo_sql` por aba (troca junto em `abas::trocar`). O corpo de função do MySQL com
   `BEGIN … END` não roda pelo editor (o `;` de dentro corta o comando; não há `DELIMITER`).
+- `ddl_em`: rodou CREATE/ALTER/DROP/RENAME (`muda_estrutura`) e deu certo → `Msg::Atualizar` daquele banco
+  (a resposta passa por `App::executado`). Renomear: `estrutura::sql_renomear`.
 - Disco cheio em 04/11/2026 (o `target/debug` tinha 17 GB): testar com `cargo test --release`, uma pasta só.
 - SQL Server nativo ficou de fora: o `tiberius` puxa `aws-lc` (C, cmake) pelo `tokio-rustls`. Hoje é por ODBC.
 - A senha nunca vai para arquivo: "Lembrar a senha" (ligado por padrão, pedido do usuário em 04/11/2026)

@@ -20,7 +20,8 @@ Think DBeaver, without the weight: it opens instantly and uses about 100 MB of R
   the whole script. Queries run in the background, so the window never freezes, and **Stop** cancels them.
   Query tabs (`Ctrl+T`), each with its own SQL, connection and result; table and column names completed as you type;
   format the SQL (`Ctrl+Shift+F`); query plan (EXPLAIN); query history (`Ctrl+H`); open and save `.sql` files (`Ctrl+O`, `Ctrl+S`).
-  Functions (PostgreSQL, MySQL) and materialized views in the tree, with REFRESH; templates for view, materialized view and function. A `DELETE` or `UPDATE` without
+  Functions (PostgreSQL, MySQL) and materialized views in the tree, with REFRESH; templates for view, materialized view and function. Run a `.sql` file without opening it;
+  rename tables from the tree; the tree refreshes itself after `CREATE`/`ALTER`/`DROP`. A `DELETE` or `UPDATE` without
   `WHERE` asks before running. A dropped connection is reopened on its own.
 - **Table tree:** with no database chosen, it lists the server's databases (like DBeaver); tables, views and columns with their types; double-click a table to see its data;
   right-click for SELECT, COUNT, copy the name, edit or delete.

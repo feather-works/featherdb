@@ -258,6 +258,8 @@ mod testes {
         assert_eq!(formatar("select * from t where nome = 'O''Neil'"), "SELECT *\nFROM t\nWHERE nome = 'O''Neil'\n");
         assert_eq!(formatar("select E'a\\nb', [Nome Cliente] from [dbo].[t]"), "SELECT E'a\\nb',\n  [Nome Cliente]\nFROM [dbo].[t]\n");
         assert_eq!(formatar("select a, b from t"), "SELECT a,\n  b\nFROM t\n");
+        // Operadores do Postgres feitos de vários sinais ficam inteiros.
+        assert_eq!(formatar("select d->>'nome' from t where d @? '$.a'"), "SELECT d->>'nome'\nFROM t\nWHERE d @? '$.a'\n");
     }
 
     #[test]

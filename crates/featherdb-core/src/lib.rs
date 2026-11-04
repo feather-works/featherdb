@@ -466,6 +466,12 @@ pub fn so_le(sql: &str) -> bool {
     matches!(p.as_str(), "select" | "show" | "explain" | "describe" | "desc" | "values" | "table") || ((p == "with" || p.starts_with("db.")) && !escreve)
 }
 
+/// Comando que muda a estrutura do banco (tabelas, views, funções): a árvore precisa ler o catálogo de novo.
+pub fn muda_estrutura(sql: &str) -> bool {
+    let p = sql.trim_start().split(|c: char| !c.is_ascii_alphabetic()).next().unwrap_or("").to_ascii_lowercase();
+    matches!(p.as_str(), "create" | "alter" | "drop" | "rename")
+}
+
 /// Posição (em bytes) de cada `;` que separa comandos.
 fn separadores(texto: &str) -> Vec<usize> {
     let b = texto.as_bytes();
@@ -590,6 +596,7 @@ mod testes {
         assert!(!so_le("update t set a = 1"));
         assert!(!so_le("WITH x AS (SELECT 1) DELETE FROM t"));
         assert!(!so_le("db.pedidos.deleteMany({})"));
+        assert!(muda_estrutura("CREATE VIEW v AS SELECT 1") && muda_estrutura("  drop table t") && !muda_estrutura("select 1"));
     }
 
     #[test]

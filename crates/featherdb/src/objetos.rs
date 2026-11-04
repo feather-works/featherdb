@@ -29,6 +29,20 @@ pub(crate) enum AcaoObjeto {
     Salvar,
     SalvarComo,
     Salvo(Option<Result<PathBuf, String>>),
+    /// Rodar um arquivo .sql inteiro sem abrir no editor.
+    RodarArquivo,
+    ArquivoParaRodar(Option<(PathBuf, Result<String, String>)>),
+    Renomear(Alvo, featherdb_core::Tabela),
+    NomeNovo(String),
+    ConfirmarRenomear(bool),
+}
+
+/// Escolhe um arquivo .sql e lê (texto em UTF-8; o que não for vira �).
+async fn escolher_sql() -> Option<(PathBuf, Result<String, String>)> {
+    let a = rfd::AsyncFileDialog::new().add_filter("SQL", &["sql", "txt"]).add_filter("*", &["*"]).pick_file().await?;
+    let caminho = a.path().to_path_buf();
+    let texto = std::fs::read(&caminho).map(|b| String::from_utf8_lossy(&b).into_owned()).map_err(|e| e.to_string());
+    Some((caminho, texto))
 }
 
 /// Bancos que listam funções e têm view materializada.
@@ -95,17 +109,38 @@ impl App {
                 self.tabela_aberta = None;
                 return self.rodar(vec![format!("REFRESH MATERIALIZED VIEW {}", t.qualificado(Tipo::Postgres))]);
             }
-            AcaoObjeto::Abrir => {
-                return Task::perform(
-                    async {
-                        let a = rfd::AsyncFileDialog::new().add_filter("SQL", &["sql", "txt"]).add_filter("*", &["*"]).pick_file().await?;
-                        let caminho = a.path().to_path_buf();
-                        let texto = std::fs::read(&caminho).map(|b| String::from_utf8_lossy(&b).into_owned()).map_err(|e| e.to_string());
-                        Some((caminho, texto))
-                    },
-                    |r| Msg::Objeto(AcaoObjeto::Aberto(r)),
-                );
+            AcaoObjeto::RodarArquivo => {
+                return Task::perform(escolher_sql(), |r| Msg::Objeto(AcaoObjeto::ArquivoParaRodar(r)));
             }
+            AcaoObjeto::ArquivoParaRodar(None) => {}
+            AcaoObjeto::ArquivoParaRodar(Some((caminho, Err(e)))) => self.aviso = trf("Não foi possível abrir {}: {}", &[&caminho.display(), &e]),
+            AcaoObjeto::ArquivoParaRodar(Some((caminho, Ok(texto)))) => {
+                let comandos = featherdb_core::dividir(&texto);
+                self.aviso = trf("Rodando {} ({} comandos)…", &[&caminho.display(), &comandos.len()]);
+                self.tabela_aberta = None;
+                return self.rodar(comandos);
+            }
+            AcaoObjeto::Renomear(alvo, t) => self.renomear = Some((alvo, t.clone(), t.nome)),
+            AcaoObjeto::NomeNovo(n) => {
+                if let Some((_, _, nome)) = &mut self.renomear {
+                    *nome = n;
+                }
+            }
+            AcaoObjeto::ConfirmarRenomear(sim) => {
+                let Some((alvo, t, novo)) = self.renomear.take() else { return Task::none() };
+                if !sim || novo.trim() == t.nome {
+                    return Task::none();
+                }
+                match featherdb_core::estrutura::sql_renomear(self.tipo(alvo.0), &t, &novo) {
+                    Ok(sql) => {
+                        self.ativa = Some(alvo);
+                        self.tabela_aberta = None;
+                        return self.rodar(vec![sql]);
+                    }
+                    Err(e) => self.aviso = e,
+                }
+            }
+            AcaoObjeto::Abrir => return Task::perform(escolher_sql(), |r| Msg::Objeto(AcaoObjeto::Aberto(r))),
             AcaoObjeto::Aberto(None) => {}
             AcaoObjeto::Aberto(Some((caminho, Err(e)))) => self.aviso = trf("Não foi possível abrir {}: {}", &[&caminho.display(), &e]),
             AcaoObjeto::Aberto(Some((caminho, Ok(texto)))) => {
@@ -181,11 +216,32 @@ impl App {
         saida
     }
 
+    /// O diálogo de trocar o nome de uma tabela, com o SQL que vai rodar.
+    pub(crate) fn view_renomear<'a>(&'a self, base: Element<'a, Msg>) -> Element<'a, Msg> {
+        let Some((alvo, t, novo)) = &self.renomear else { return base };
+        let m = |a| Msg::Objeto(a);
+        let sql = featherdb_core::estrutura::sql_renomear(self.tipo(alvo.0), t, novo);
+        let previa: Element<'a, Msg> = match &sql {
+            Ok(s) => text(s.clone()).size(12).font(Font::MONO).into(),
+            Err(e) => text(e.clone()).size(12).color(COR_ERRO()).into(),
+        };
+        let campo = pelicano::text_input(tr("Nome novo"), novo.as_str()).on_input(|s| Msg::Objeto(AcaoObjeto::NomeNovo(s))).on_submit(m(AcaoObjeto::ConfirmarRenomear(true))).autofocus(1).padding([7, 10]);
+        let corpo = pelicano::column![campo, text(tr("O que vai rodar no banco")).size(12).color(COR_TEXTO_MUTED()), previa].spacing(10);
+        feather_ui::dialogo::Dialogo::new(trf("Renomear {}", &[&t.nome]), corpo)
+            .icone("pencil")
+            .largura(460.0)
+            .ao_fechar(m(AcaoObjeto::ConfirmarRenomear(false)))
+            .secundario(tr("Cancelar"), Some(m(AcaoObjeto::ConfirmarRenomear(false))))
+            .primario(tr("Renomear"), sql.is_ok().then_some(m(AcaoObjeto::ConfirmarRenomear(true))))
+            .sobre(base)
+    }
+
     /// Os botões de abrir e salvar `.sql` da faixa do editor.
     pub(crate) fn acoes_arquivo(&self) -> Element<'_, Msg> {
         let abrir = crate::acao_pequena(feather_ui::icones::icone_traco("folder-open", 15.0), tr("Abrir arquivo .sql (Ctrl+O)"), Some(Msg::Objeto(AcaoObjeto::Abrir)));
         let salvar = crate::acao_pequena(feather_ui::icones::icone_traco("device-floppy", 15.0), tr("Salvar em arquivo .sql (Ctrl+S)"), Some(Msg::Objeto(AcaoObjeto::Salvar)));
-        container(row![abrir, salvar].spacing(2)).into()
+        let rodar = crate::acao_pequena(crate::icone_tabler(crate::EXECUTAR_TUDO, 15.0), tr("Rodar um arquivo .sql sem abrir"), Some(Msg::Objeto(AcaoObjeto::RodarArquivo)));
+        container(row![abrir, salvar, rodar].spacing(2)).into()
     }
 }
 

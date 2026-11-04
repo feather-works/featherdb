@@ -76,6 +76,8 @@ pub(crate) static VERSOES: [novidades::Versao; 1] = [novidades::Versao {
         "A conexão que caiu é refeita sozinha.",
         "Abrir e salvar arquivos .sql (Ctrl+O, Ctrl+S).",
         "Funções e views materializadas na árvore; modelos de view, view materializada e função.",
+        "Rodar um arquivo .sql sem abrir; renomear tabela pela árvore; a árvore se atualiza sozinha depois de CREATE, ALTER e DROP.",
+        "Ordenar números grandes (ids de 20 dígitos) sem errar.",
     ],
 }];
 

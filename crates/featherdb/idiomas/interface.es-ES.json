@@ -344,5 +344,15 @@
  "As funções do banco (PostgreSQL e MySQL) aparecem na árvore, embaixo das tabelas. Clique numa para abrir o código numa aba e mudar.": "Las funciones de la base (PostgreSQL y MySQL) aparecen en el árbol, debajo de las tablas. Haz clic en una para abrir el código en una pestaña y cambiarlo.",
  "Abrir e salvar arquivos .sql (Ctrl+O, Ctrl+S).": "Abrir y guardar archivos .sql (Ctrl+O, Ctrl+S).",
  "Funções e views materializadas na árvore; modelos de view, view materializada e função.": "Funciones y vistas materializadas en el árbol; plantillas de vista, vista materializada y función.",
- "Salvar": "Guardar"
+ "Salvar": "Guardar",
+ "Nome novo": "Nombre nuevo",
+ "Renomear {}": "Renombrar {}",
+ "Renomear": "Renombrar",
+ "Renomear…": "Renombrar…",
+ "Rodando {} ({} comandos)…": "Ejecutando {} ({} comandos)…",
+ "Rodar um arquivo .sql sem abrir": "Ejecutar un archivo .sql sin abrirlo",
+ "Também dá para rodar um arquivo .sql inteiro sem abrir (o botão ao lado do disquete).": "También se puede ejecutar un archivo .sql entero sin abrirlo (el botón junto al disquete).",
+ "Depois de CREATE, ALTER ou DROP a árvore lê o banco de novo sozinha: a tabela nova já aparece. Botão direito numa tabela também renomeia (mostrando o SQL antes).": "Después de CREATE, ALTER o DROP el árbol vuelve a leer la base solo: la tabla nueva ya aparece. El clic derecho en una tabla también la renombra (mostrando el SQL antes).",
+ "Rodar um arquivo .sql sem abrir; renomear tabela pela árvore; a árvore se atualiza sozinha depois de CREATE, ALTER e DROP.": "Ejecutar un archivo .sql sin abrirlo; renombrar tabla desde el árbol; el árbol se actualiza solo después de CREATE, ALTER y DROP.",
+ "Ordenar números grandes (ids de 20 dígitos) sem errar.": "Ordenar números grandes (ids de 20 dígitos) sin errores."
 }

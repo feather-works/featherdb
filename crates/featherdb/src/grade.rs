@@ -85,8 +85,10 @@ pub(crate) fn ordem(r: &Resultado, ordenacao: Option<(usize, bool)>, filtro: &st
                 (None, None) => std::cmp::Ordering::Equal,
                 (None, _) => std::cmp::Ordering::Less,
                 (_, None) => std::cmp::Ordering::Greater,
-                (Some(x), Some(y)) => match (x.trim().parse::<f64>(), y.trim().parse::<f64>()) {
-                    (Ok(x), Ok(y)) => x.total_cmp(&y),
+                (Some(x), Some(y)) => match (inteiro(&x), inteiro(&y), x.trim().parse::<f64>(), y.trim().parse::<f64>()) {
+                    // Inteiros comparam pelos dígitos: um id de 20 dígitos passa da precisão do f64.
+                    (Some(a), Some(b), _, _) => a.cmp(&b),
+                    (_, _, Ok(x), Ok(y)) => x.total_cmp(&y),
                     _ => x.to_lowercase().cmp(&y.to_lowercase()),
                 },
             };
@@ -94,6 +96,20 @@ pub(crate) fn ordem(r: &Resultado, ordenacao: Option<(usize, bool)>, filtro: &st
         });
     }
     v
+}
+
+/// Um inteiro de qualquer tamanho como chave de ordem: negativo primeiro, depois quantos dígitos, depois os dígitos.
+fn inteiro(s: &str) -> Option<(bool, isize, String)> {
+    let s = s.trim();
+    let (neg, d) = s.strip_prefix('-').map_or((false, s), |r| (true, r));
+    if d.is_empty() || !d.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let d = d.trim_start_matches('0');
+    // Negativos: mais dígitos é menor; o texto dos dígitos vai invertido na comparação.
+    let digitos: String = if neg { d.bytes().map(|b| (b'9' - b + b'0') as char).collect() } else { d.to_owned() };
+    let zero = d.is_empty();
+    Some((!neg || zero, if neg && !zero { -(d.len() as isize) } else { d.len() as isize }, digitos))
 }
 
 /// A grade do resultado. Monta só as linhas e colunas que aparecem na tela (`pos` e `vista` vêm da
@@ -288,6 +304,9 @@ mod testes {
         assert_eq!(ordem(&r, Some((0, false)), ""), vec![0, 1, 2]);
         assert_eq!(ordem(&r, Some((1, false)), ""), vec![2, 1, 0]);
         assert_eq!(ordem(&r, None, "BI"), vec![1]);
+        let n = |v: &[&str]| Resultado { colunas: vec!["id".into()], linhas: v.iter().map(|x| vec![Some(x.to_string())]).collect(), ..Default::default() };
+        // Diferem só no último dígito de 20: o f64 acharia iguais.
+        assert_eq!(ordem(&n(&["12345678901234567891", "12345678901234567890", "-5", "-40", "0", "7"]), Some((0, true)), ""), vec![3, 2, 4, 5, 1, 0]);
     }
 
     #[test]

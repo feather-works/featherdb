@@ -88,6 +88,7 @@ fn montar() -> Catalogo {
                 topico("arquivos-sql", "Abrir e salvar .sql", vec![
                     t("A pasta abre um arquivo .sql: numa aba vazia ele entra nela, senão abre numa aba nova com o nome do arquivo."),
                     t("O disquete salva o SQL da aba no arquivo. Na primeira vez pergunta onde; depois Ctrl+S grava no mesmo arquivo."),
+                    t("Também dá para rodar um arquivo .sql inteiro sem abrir (o botão ao lado do disquete)."),
                     a("Abrir arquivo .sql", "Ctrl+O"),
                     a("Salvar", "Ctrl+S"),
                     a("Salvar como", "Ctrl+Shift+S"),
@@ -96,6 +97,7 @@ fn montar() -> Catalogo {
                     t("Botão direito na conexão ou no banco: Nova view, Nova view materializada (PostgreSQL) e Nova função abrem um modelo numa aba nova. Se o comando do cursor for um SELECT, a view já vem com ele."),
                     t("Uma view é uma consulta guardada com nome: toda vez que você lê, ela roda de novo. A view materializada guarda o resultado: ler é rápido, mas os dados só mudam com Atualizar os dados (REFRESH), no botão direito dela."),
                     t("As funções do banco (PostgreSQL e MySQL) aparecem na árvore, embaixo das tabelas. Clique numa para abrir o código numa aba e mudar."),
+                    t("Depois de CREATE, ALTER ou DROP a árvore lê o banco de novo sozinha: a tabela nova já aparece. Botão direito numa tabela também renomeia (mostrando o SQL antes)."),
                 ]),
             ]),
             secao("bancos", "Bancos de dados", "PostgreSQL, MySQL, SQLite e MongoDB vêm prontos. Os outros entram por ODBC.", vec![

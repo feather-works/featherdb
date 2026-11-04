@@ -154,6 +154,26 @@ pub fn sql_alterar(tipo: Tipo, tabela: &str, antes: &Coluna, depois: &Coluna) ->
     Ok(s)
 }
 
+/// O SQL que troca o nome de uma tabela, view ou view materializada (o esquema continua o mesmo).
+pub fn sql_renomear(tipo: Tipo, t: &crate::Tabela, novo: &str) -> Result<String, String> {
+    let novo = novo.trim();
+    if novo.is_empty() {
+        return Err("Escreva o nome novo.".into());
+    }
+    let (atual, n) = (t.qualificado(tipo), identificador(novo, tipo));
+    match tipo {
+        Tipo::Postgres => {
+            let objeto = if t.materializada { "MATERIALIZED VIEW" } else if t.visao { "VIEW" } else { "TABLE" };
+            Ok(format!("ALTER {objeto} {atual} RENAME TO {n}"))
+        }
+        // No MySQL o nome novo leva o banco junto, senão a tabela muda para o banco padrão.
+        Tipo::MySql => Ok(format!("RENAME TABLE {atual} TO {}", crate::Tabela { nome: novo.to_owned(), ..t.clone() }.qualificado(tipo))),
+        Tipo::Sqlite if t.visao => Err("O SQLite não renomeia view: apague e crie de novo com o nome novo.".into()),
+        Tipo::Sqlite => Ok(format!("ALTER TABLE {atual} RENAME TO {n}")),
+        Tipo::Odbc | Tipo::MongoDb => Err("Renomeie escrevendo o comando no editor.".into()),
+    }
+}
+
 /// O UPDATE de uma linha editada na grade: as colunas mudadas no SET e a chave primária no WHERE
 /// (com o valor que a linha tinha). `None` quando a chave é vazia (NULL): sem ela não dá para achar a linha.
 pub fn sql_atualizar(tipo: Tipo, tabela: &str, colunas: &[String], chaves: &[usize], linha: &[Option<String>], mudancas: &[(usize, Option<String>)]) -> Option<String> {
@@ -282,6 +302,18 @@ mod testes {
         );
         assert_eq!(sql_atualizar(Tipo::MySql, "t", &cols, &[2], &linha, &[(1, None)]), None);
         assert_eq!(sql_atualizar(Tipo::MySql, "t", &cols, &[0], &linha, &[(1, Some("C:\\x".into()))]).as_deref(), Some("UPDATE t SET `Nome` = 'C:\\\\x' WHERE id = '7'"));
+    }
+
+    #[test]
+    fn renomear_cada_banco_do_seu_jeito() {
+        let t = crate::Tabela { esquema: "public".into(), nome: "vendas".into(), ..Default::default() };
+        assert_eq!(sql_renomear(Tipo::Postgres, &t, "Vendas 2026").unwrap(), "ALTER TABLE public.vendas RENAME TO \"Vendas 2026\"");
+        let m = crate::Tabela { visao: true, materializada: true, ..t.clone() };
+        assert_eq!(sql_renomear(Tipo::Postgres, &m, "resumo").unwrap(), "ALTER MATERIALIZED VIEW public.vendas RENAME TO resumo");
+        let my = crate::Tabela { esquema: "loja".into(), ..t.clone() };
+        assert_eq!(sql_renomear(Tipo::MySql, &my, "pedidos").unwrap(), "RENAME TABLE loja.vendas TO loja.pedidos");
+        assert!(sql_renomear(Tipo::Sqlite, &crate::Tabela { visao: true, ..t.clone() }, "x").is_err());
+        assert!(sql_renomear(Tipo::Postgres, &t, "  ").is_err());
     }
 
     #[test]
