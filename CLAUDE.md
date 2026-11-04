@@ -9,8 +9,10 @@ outro projeto) e `../feather-ui-pelicano/GUIA-JANELAS.md` (ícones só Tabler, c
 - `featherdb-core`: conexões (`Conexao`, `ler_conexoes`/`gravar_conexoes`), o trait `Banco` e os drivers:
   Postgres (`postgres`, protocolo simples: tudo vem como texto; TLS com rustls), MySQL (`mysql`, 100% Rust),
   SQLite (`rusqlite` com o C embutido, exceção à regra "sem C" aceita pelo usuário) e ODBC
-  (`odbc.rs`: a API ODBC carregada com `libloading` só ao conectar; o app abre sem unixODBC).
+  (`odbc.rs`: a API ODBC carregada com `libloading` só ao conectar; o app abre sem unixODBC; funções "W",
+  texto em UTF-16, para os acentos não quebrarem no Windows).
   ODBC é o caminho para Datasphere/HANA, TIBCO TDV e outros (o papel do JDBC no DBeaver, sem Java).
+- `Content::cursor()` do pelicano conta de 1; o motor (`comando_no_cursor`) conta de 0 (`App::comando_atual`).
 - A interface só chama o motor; consultas rodam em `spawn_blocking` (a janela nunca trava).
 - A senha nunca vai para o disco. Arquivos em `~/.config/featherdb/`: `config.txt`, `conexoes.txt`, `rascunho.sql`.
 - Idiomas: o texto em português no código é a chave; `idiomas/interface.{en-US,es-ES}.json`. Os testes

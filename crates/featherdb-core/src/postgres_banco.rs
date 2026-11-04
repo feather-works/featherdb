@@ -57,9 +57,11 @@ impl Banco for Pg {
         Ok(r)
     }
 
-    fn sql_tabelas(&self) -> String {
+    fn tabelas(&mut self) -> Result<Vec<crate::Tabela>, String> {
+        crate::tabelas_do_catalogo(
+            self,
         "SELECT table_schema, table_name, table_type FROM information_schema.tables \
-         WHERE table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY 1, 2"
-            .into()
+         WHERE table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY 1, 2",
+        )
     }
 }

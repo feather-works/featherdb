@@ -131,10 +131,15 @@ impl App {
         let Some(form) = &mut self.form else { return Task::none() };
         match campo {
             Campo::Tipo(t) => {
-                // Troca o tipo mantendo o nome; a porta segue o padrão do banco novo.
-                let nome = std::mem::take(&mut form.c.nome);
-                form.c = Conexao { nome, ..Conexao::nova(t) };
-                form.porta = form.c.porta.to_string();
+                // Troca o tipo sem apagar o que já foi digitado; a porta segue o padrão do banco novo.
+                let antes = form.c.tipo;
+                form.c.tipo = t;
+                if form.porta.trim() == antes.porta_padrao().to_string() || form.porta.trim() == "0" {
+                    form.porta = t.porta_padrao().to_string();
+                }
+                if matches!(t, Tipo::Postgres | Tipo::MySql) && form.c.host.is_empty() {
+                    form.c.host = "localhost".into();
+                }
             }
             Campo::Nome(s) => form.c.nome = s,
             Campo::Host(s) => form.c.host = s,
@@ -145,11 +150,13 @@ impl App {
             Campo::Caminho(s) => form.c.caminho = s,
             Campo::Tls(v) => form.c.tls = v,
             Campo::EscolherArquivo => {
+                // Cancelar a escolha mantém o arquivo que já estava no campo.
+                let atual = form.c.caminho.clone();
                 return Task::perform(
                     async {
                         rfd::AsyncFileDialog::new().add_filter("SQLite", &["db", "sqlite", "sqlite3", "db3"]).add_filter("*", &["*"]).pick_file().await.map(|a| a.path().to_string_lossy().into_owned())
                     },
-                    |c| c.map_or(Msg::Form(Campo::Caminho(String::new())), |c| Msg::Form(Campo::Caminho(c))),
+                    move |c| Msg::Form(Campo::Caminho(c.unwrap_or(atual))),
                 );
             }
             Campo::Testar => match form.conexao() {
@@ -208,6 +215,18 @@ impl App {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn trocar_o_tipo_nao_apaga_o_que_foi_digitado() {
+        let mut app = App::novo(crate::config::Config::default());
+        let mut c = Conexao::nova(Tipo::Postgres);
+        c.host = "db.empresa.com".into();
+        c.usuario = "ana".into();
+        app.form = Some(Formulario::novo(None, c));
+        let _ = app.update_form(Campo::Tipo(Tipo::MySql));
+        let f = app.form.as_ref().unwrap();
+        assert_eq!((f.c.host.as_str(), f.c.usuario.as_str(), f.porta.as_str()), ("db.empresa.com", "ana", "3306"));
+    }
 
     #[test]
     fn porta_e_campos_obrigatorios() {

@@ -22,26 +22,28 @@ const OV_ODBC3: usize = 3;
 const NO_DATA: Ret = 100;
 const NULL_DATA: isize = -1;
 const NO_TOTAL: isize = -4;
-const C_CHAR: i16 = 1;
+const C_WCHAR: i16 = -8;
 const DRIVER_NOPROMPT: u16 = 0;
 
-/// As funções da API ODBC que o FeatherDB usa (versões de 8 bits: o texto vai em UTF-8).
+/// As funções da API ODBC que o FeatherDB usa, nas versões "W": o texto vai em UTF-16, que é o que o
+/// Windows e o unixODBC usam (as versões de 8 bits seguem a página de código e estragam os acentos no Windows).
+/// shortcut: o iODBC do macOS usa caracteres de 4 bytes; trocar o tipo do caractere se o FeatherDB for para o macOS.
 struct Api {
     _lib: Library,
     alloc: unsafe extern "system" fn(i16, H, *mut H) -> Ret,
     free: unsafe extern "system" fn(i16, H) -> Ret,
     set_env_attr: unsafe extern "system" fn(H, i32, H, i32) -> Ret,
-    driver_connect: unsafe extern "system" fn(H, H, *const u8, i16, *mut u8, i16, *mut i16, u16) -> Ret,
+    driver_connect: unsafe extern "system" fn(H, H, *const u16, i16, *mut u16, i16, *mut i16, u16) -> Ret,
     disconnect: unsafe extern "system" fn(H) -> Ret,
-    exec_direct: unsafe extern "system" fn(H, *const u8, i32) -> Ret,
+    exec_direct: unsafe extern "system" fn(H, *const u16, i32) -> Ret,
     num_result_cols: unsafe extern "system" fn(H, *mut i16) -> Ret,
-    describe_col: unsafe extern "system" fn(H, u16, *mut u8, i16, *mut i16, *mut i16, *mut usize, *mut i16, *mut i16) -> Ret,
+    describe_col: unsafe extern "system" fn(H, u16, *mut u16, i16, *mut i16, *mut i16, *mut usize, *mut i16, *mut i16) -> Ret,
     fetch: unsafe extern "system" fn(H) -> Ret,
     get_data: unsafe extern "system" fn(H, u16, i16, H, isize, *mut isize) -> Ret,
     row_count: unsafe extern "system" fn(H, *mut isize) -> Ret,
-    tables: unsafe extern "system" fn(H, *const u8, i16, *const u8, i16, *const u8, i16, *const u8, i16) -> Ret,
-    columns: unsafe extern "system" fn(H, *const u8, i16, *const u8, i16, *const u8, i16, *const u8, i16) -> Ret,
-    diag: unsafe extern "system" fn(i16, H, i16, *mut u8, *mut i32, *mut u8, i16, *mut i16) -> Ret,
+    tables: unsafe extern "system" fn(H, *const u16, i16, *const u16, i16, *const u16, i16, *const u16, i16) -> Ret,
+    columns: unsafe extern "system" fn(H, *const u16, i16, *const u16, i16, *const u16, i16, *const u16, i16) -> Ret,
+    diag: unsafe extern "system" fn(i16, H, i16, *mut u16, *mut i32, *mut u16, i16, *mut i16) -> Ret,
 }
 
 const BIBLIOTECAS: &[&str] = if cfg!(windows) {
@@ -70,23 +72,32 @@ fn api() -> Result<&'static Api, String> {
                 alloc: f!(b"SQLAllocHandle"),
                 free: f!(b"SQLFreeHandle"),
                 set_env_attr: f!(b"SQLSetEnvAttr"),
-                driver_connect: f!(b"SQLDriverConnect"),
+                driver_connect: f!(b"SQLDriverConnectW"),
                 disconnect: f!(b"SQLDisconnect"),
-                exec_direct: f!(b"SQLExecDirect"),
+                exec_direct: f!(b"SQLExecDirectW"),
                 num_result_cols: f!(b"SQLNumResultCols"),
-                describe_col: f!(b"SQLDescribeCol"),
+                describe_col: f!(b"SQLDescribeColW"),
                 fetch: f!(b"SQLFetch"),
                 get_data: f!(b"SQLGetData"),
                 row_count: f!(b"SQLRowCount"),
-                tables: f!(b"SQLTables"),
-                columns: f!(b"SQLColumns"),
-                diag: f!(b"SQLGetDiagRec"),
+                tables: f!(b"SQLTablesW"),
+                columns: f!(b"SQLColumnsW"),
+                diag: f!(b"SQLGetDiagRecW"),
                 _lib: lib,
             })
         }
     })
     .as_ref()
     .map_err(Clone::clone)
+}
+
+/// Texto em UTF-16 (sem o zero final: os tamanhos vão explícitos).
+fn w(s: &str) -> Vec<u16> {
+    s.encode_utf16().collect()
+}
+
+fn de_w(u: &[u16]) -> String {
+    String::from_utf16_lossy(u)
 }
 
 fn ok(r: Ret) -> bool {
@@ -97,14 +108,14 @@ fn ok(r: Ret) -> bool {
 fn diagnostico(api: &Api, tipo: i16, h: H) -> String {
     let mut msgs = Vec::new();
     for rec in 1..=5 {
-        let (mut estado, mut nativo, mut msg, mut tam) = ([0u8; 6], 0i32, [0u8; 1024], 0i16);
+        let (mut estado, mut nativo, mut msg, mut tam) = ([0u16; 6], 0i32, [0u16; 1024], 0i16);
         // SAFETY: buffers com o tamanho informado.
         let r = unsafe { (api.diag)(tipo, h, rec, estado.as_mut_ptr(), &mut nativo, msg.as_mut_ptr(), msg.len() as i16, &mut tam) };
         if !ok(r) {
             break;
         }
         let n = (tam.max(0) as usize).min(msg.len() - 1);
-        msgs.push(format!("[{}] {}", String::from_utf8_lossy(&estado[..5]), String::from_utf8_lossy(&msg[..n])));
+        msgs.push(format!("[{}] {}", de_w(&estado[..5]), de_w(&msg[..n])));
     }
     if msgs.is_empty() { "erro ODBC sem mensagem do driver".into() } else { msgs.join("\n") }
 }
@@ -143,7 +154,8 @@ pub(crate) fn conectar(texto: &str, usuario: &str, senha: &str) -> Result<Box<dy
             (api.free)(HANDLE_ENV, env);
             return Err("O ODBC não abriu a conexão.".into());
         }
-        let mut saida = [0u8; 1024];
+        let conexao = w(&conexao);
+        let mut saida = [0u16; 1024];
         let mut tam = 0i16;
         let r = (api.driver_connect)(dbc, null_mut(), conexao.as_ptr(), conexao.len() as i16, saida.as_mut_ptr(), saida.len() as i16, &mut tam, DRIVER_NOPROMPT);
         if !ok(r) {
@@ -201,10 +213,10 @@ impl Odbc {
             }
             let mut r = Resultado::default();
             for i in 1..=ncol as u16 {
-                let (mut nome, mut tam, mut tipo, mut tamcol, mut dec, mut nulo) = ([0u8; 256], 0i16, 0i16, 0usize, 0i16, 0i16);
+                let (mut nome, mut tam, mut tipo, mut tamcol, mut dec, mut nulo) = ([0u16; 256], 0i16, 0i16, 0usize, 0i16, 0i16);
                 (api.describe_col)(h, i, nome.as_mut_ptr(), nome.len() as i16, &mut tam, &mut tipo, &mut tamcol, &mut dec, &mut nulo);
                 let n = (tam.max(0) as usize).min(nome.len() - 1);
-                r.colunas.push(String::from_utf8_lossy(&nome[..n]).into_owned());
+                r.colunas.push(de_w(&nome[..n]));
             }
             loop {
                 let f = (api.fetch)(h);
@@ -230,11 +242,12 @@ impl Odbc {
 
     /// Um valor como texto, em pedaços (textos longos vêm em várias chamadas).
     unsafe fn valor(&self, h: H, coluna: u16) -> Result<Option<String>, String> {
-        let mut bytes = Vec::new();
-        let mut buf = [0u8; 4096];
+        let mut texto = Vec::new();
+        let mut buf = [0u16; 2048];
+        let bytes = (buf.len() * 2) as isize;
         loop {
             let mut ind = 0isize;
-            let r = (self.api.get_data)(h, coluna, C_CHAR, buf.as_mut_ptr() as H, buf.len() as isize, &mut ind);
+            let r = (self.api.get_data)(h, coluna, C_WCHAR, buf.as_mut_ptr() as H, bytes, &mut ind);
             if r == NO_DATA {
                 break;
             }
@@ -244,20 +257,21 @@ impl Odbc {
             if ind == NULL_DATA {
                 return Ok(None);
             }
-            // Cabe no buffer: veio tudo. Senão vieram buf.len()-1 bytes (o último é o zero final).
-            let veio = if ind == NO_TOTAL || ind >= buf.len() as isize { buf.len() - 1 } else { ind as usize };
-            bytes.extend_from_slice(&buf[..veio]);
+            // `ind` conta bytes. Cabe no buffer: veio tudo. Senão veio o buffer menos o zero final.
+            let veio = if ind == NO_TOTAL || ind >= bytes - 1 { buf.len() - 1 } else { ind as usize / 2 };
+            texto.extend_from_slice(&buf[..veio]);
             if r == 0 {
                 break;
             }
         }
-        Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+        Ok(Some(de_w(&texto)))
     }
 }
 
 impl Banco for Odbc {
     fn executar(&mut self, sql: &str, limite: usize) -> Result<Resultado, String> {
         let st = self.comando()?;
+        let sql = w(sql);
         // SAFETY: texto com tamanho explícito.
         let r = unsafe { (self.api.exec_direct)(st.1, sql.as_ptr(), sql.len() as i32) };
         if r != NO_DATA && !ok(r) {
@@ -268,7 +282,7 @@ impl Banco for Odbc {
 
     fn tabelas(&mut self) -> Result<Vec<Tabela>, String> {
         let st = self.comando()?;
-        let tipos = b"TABLE,VIEW";
+        let tipos = w("TABLE,VIEW");
         // SAFETY: nulos com tamanho 0 = "todos"; tipos com tamanho explícito.
         let r = unsafe { (self.api.tables)(st.1, std::ptr::null(), 0, std::ptr::null(), 0, std::ptr::null(), 0, tipos.as_ptr(), tipos.len() as i16) };
         if !ok(r) {
@@ -288,7 +302,7 @@ impl Banco for Odbc {
 
     fn colunas(&mut self, t: &Tabela) -> Result<Vec<(String, String)>, String> {
         let st = self.comando()?;
-        let (esq, nome) = (t.esquema.as_bytes(), t.nome.as_bytes());
+        let (esq, nome) = (w(&t.esquema), w(&t.nome));
         let (pe, te) = if esq.is_empty() { (std::ptr::null(), 0) } else { (esq.as_ptr(), esq.len() as i16) };
         // SAFETY: textos com tamanho explícito.
         let r = unsafe { (self.api.columns)(st.1, std::ptr::null(), 0, pe, te, nome.as_ptr(), nome.len() as i16, std::ptr::null(), 0) };

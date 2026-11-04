@@ -158,16 +158,7 @@ pub trait Banco: Send {
     fn executar(&mut self, sql: &str, limite: usize) -> Result<Resultado, String>;
 
     /// Tabelas e visões, menos as do sistema.
-    fn tabelas(&mut self) -> Result<Vec<Tabela>, String> {
-        let r = self.executar(&self.sql_tabelas(), usize::MAX)?;
-        Ok(r.linhas
-            .into_iter()
-            .map(|l| {
-                let campo = |i: usize| l.get(i).cloned().flatten().unwrap_or_default();
-                Tabela { esquema: campo(0), nome: campo(1), visao: campo(2).contains("VIEW") }
-            })
-            .collect())
-    }
+    fn tabelas(&mut self) -> Result<Vec<Tabela>, String>;
 
     /// Nome e tipo de cada coluna, na ordem da tabela.
     fn colunas(&mut self, t: &Tabela) -> Result<Vec<(String, String)>, String> {
@@ -179,11 +170,18 @@ pub trait Banco: Send {
         let r = self.executar(&sql, usize::MAX)?;
         Ok(r.linhas.into_iter().map(|l| (l.first().cloned().flatten().unwrap_or_default(), l.get(1).cloned().flatten().unwrap_or_default())).collect())
     }
+}
 
-    /// Consulta do catálogo para o `tabelas` padrão (esquema, nome, tipo).
-    fn sql_tabelas(&self) -> String {
-        String::new()
-    }
+/// As tabelas de uma consulta ao catálogo que devolve esquema, nome e tipo (Postgres e MySQL).
+pub(crate) fn tabelas_do_catalogo(b: &mut dyn Banco, sql: &str) -> Result<Vec<Tabela>, String> {
+    let r = b.executar(sql, usize::MAX)?;
+    Ok(r.linhas
+        .into_iter()
+        .map(|l| {
+            let campo = |i: usize| l.get(i).cloned().flatten().unwrap_or_default();
+            Tabela { esquema: campo(0), nome: campo(1), visao: campo(2).contains("VIEW") }
+        })
+        .collect())
 }
 
 /// O comando em volta do cursor (`linha` e `coluna` contam de 0, coluna em caracteres): o trecho
@@ -251,6 +249,17 @@ fn separadores(texto: &str) -> Vec<usize> {
                 }
                 i += 1;
             }
+            // Texto entre `$$` (ou `$marca$`) do Postgres: corpo de função, com `;` dentro.
+            b'$' => {
+                if let Some(f) = texto[i + 1..].find('$') {
+                    let marca = &texto[i..i + f + 2];
+                    if marca[1..marca.len() - 1].chars().all(|c| c.is_alphanumeric() || c == '_') {
+                        if let Some(fim) = texto[i + marca.len()..].find(marca) {
+                            i += marca.len() + fim + marca.len() - 1;
+                        }
+                    }
+                }
+            }
             b';' => saida.push(i),
             _ => {}
         }
@@ -316,6 +325,9 @@ mod testes {
     fn divide_respeitando_aspas_e_comentarios() {
         let sql = "select 'a;b';\n-- nada; aqui\nselect 2 /* ; */;\n\n";
         assert_eq!(dividir(sql), vec!["select 'a;b'", "-- nada; aqui\nselect 2 /* ; */"]);
+        let funcao = "create function f() returns int as $$ begin return 1; end $$ language plpgsql;\nselect $1;\nselect 2";
+        assert_eq!(dividir(funcao).len(), 3);
+        assert!(dividir(funcao)[0].ends_with("plpgsql"));
     }
 
     #[test]

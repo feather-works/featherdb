@@ -10,6 +10,12 @@ const POR_PAGINA: usize = 200;
 const LARGURA_MIN: f32 = 60.0;
 const LARGURA_MAX: f32 = 320.0;
 
+/// O que cabe numa célula: uma linha, no máximo 200 caracteres. Um JSON de 1 MB numa coluna
+/// seria medido e desenhado inteiro a cada quadro; a cópia e o CSV continuam com o valor todo.
+fn resumo(v: &str) -> String {
+    v.chars().take(200).map(|c| if c == '\n' || c == '\r' { ' ' } else { c }).collect()
+}
+
 pub(crate) fn paginas(linhas: usize) -> usize {
     linhas.div_ceil(POR_PAGINA).max(1)
 }
@@ -20,7 +26,7 @@ fn larguras(r: &Resultado, linhas: &[Vec<Option<String>>]) -> Vec<f32> {
         .iter()
         .enumerate()
         .map(|(i, c)| {
-            let maior = linhas.iter().map(|l| l.get(i).and_then(|v| v.as_ref()).map_or(4, |v| v.chars().count())).max().unwrap_or(0).max(c.chars().count());
+            let maior = linhas.iter().map(|l| l.get(i).and_then(|v| v.as_ref()).map_or(4, |v| v.chars().take(60).count())).max().unwrap_or(0).max(c.chars().count());
             (maior as f32 * 7.4 + 20.0).clamp(LARGURA_MIN, LARGURA_MAX)
         })
         .collect()
@@ -41,7 +47,7 @@ pub(crate) fn view(r: &Resultado, pagina: usize) -> Element<'_, Msg> {
         let mut linha = row![celula(text((inicio + n + 1).to_string()).size(12).color(COR_TEXTO_MUTED()).into(), 52.0)];
         for (v, w) in l.iter().zip(&larg) {
             let t: Element<'static, Msg> = match v {
-                Some(v) => text(v.replace(['\n', '\r'], " ")).size(12.5).no_wrap().ellipsis().into(),
+                Some(v) => text(resumo(v)).size(12.5).no_wrap().ellipsis().into(),
                 None => text("NULL").size(12).color(COR_TEXTO_MUTED()).into(),
             };
             linha = linha.push(celula(t, *w));

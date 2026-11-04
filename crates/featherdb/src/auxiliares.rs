@@ -55,6 +55,7 @@ pub(crate) static VERSOES: [novidades::Versao; 1] = [novidades::Versao {
         "A senha nunca é gravada no disco.",
         "O SQL do editor volta como você deixou na próxima vez.",
         "Interface em português, inglês e espanhol.",
+        "Filtro na árvore para bancos com milhares de tabelas.",
     ],
 }];
 

@@ -62,9 +62,25 @@ impl Banco for My {
         Ok(r)
     }
 
-    fn sql_tabelas(&self) -> String {
+    fn tabelas(&mut self) -> Result<Vec<crate::Tabela>, String> {
+        crate::tabelas_do_catalogo(
+            self,
         "SELECT table_schema, table_name, table_type FROM information_schema.tables \
-         WHERE table_schema = DATABASE() ORDER BY 1, 2"
-            .into()
+         WHERE table_schema = DATABASE() ORDER BY 1, 2",
+        )
+    }
+}
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    #[test]
+    fn valores_como_texto() {
+        assert_eq!(texto(Value::NULL), None);
+        assert_eq!(texto(Value::Bytes("ção".into())).as_deref(), Some("ção"));
+        assert_eq!(texto(Value::Date(2026, 11, 4, 0, 0, 0, 0)).as_deref(), Some("2026-11-04"));
+        assert_eq!(texto(Value::Date(2026, 11, 4, 9, 5, 7, 0)).as_deref(), Some("2026-11-04 09:05:07"));
+        assert_eq!(texto(Value::Time(true, 1, 2, 3, 4, 0)).as_deref(), Some("-26:03:04"));
     }
 }

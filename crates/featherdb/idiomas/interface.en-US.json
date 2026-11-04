@@ -142,5 +142,9 @@
  " · instalada neste computador": " · installed on this computer",
  "Também nesta versão": "Also in this version",
  "Ver no GitHub": "View on GitHub",
- "Versões": "Versions"
+ "Versões": "Versions",
+ "Filtrar tabelas": "Filter tables",
+ "mais {}; use o filtro para achar": "{} more; use the filter to find them",
+ "Filtro na árvore para bancos com milhares de tabelas.": "Filter in the tree for databases with thousands of tables.",
+ "Muitas tabelas? Escreva parte do nome em Filtrar tabelas, no alto da árvore.": "Lots of tables? Type part of the name in Filter tables, at the top of the tree."
 }

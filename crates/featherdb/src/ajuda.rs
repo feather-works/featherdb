@@ -79,6 +79,7 @@ fn montar() -> Catalogo {
                     t("Clique numa conexão para conectar e abrir as tabelas. Clique numa tabela para ver as colunas e o tipo de cada uma."),
                     t("Clique duplo numa tabela mostra os dados dela na grade."),
                     t("Criou uma tabela? O botão Atualizar tabelas lê a lista de novo."),
+                    t("Muitas tabelas? Escreva parte do nome em Filtrar tabelas, no alto da árvore."),
                 ]),
                 topico("grade", "A grade do resultado", vec![
                     t("A grade traz até mil linhas, em páginas de duzentas. Para ver outras, use WHERE, ORDER BY ou LIMIT."),

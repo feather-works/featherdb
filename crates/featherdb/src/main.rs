@@ -28,6 +28,7 @@ use idioma::{tr, trf};
 /// Cor da marca do FeatherDB (pena azul-petróleo).
 const COR_MARCA: &str = "#0b7285";
 const LARGURA_LATERAL: f32 = 270.0;
+const MAX_ARVORE: usize = 500;
 
 type Aberto = Arc<Mutex<Box<dyn Banco>>>;
 
@@ -58,6 +59,7 @@ enum Msg {
     Editar(u64),
     Excluir(u64),
     ConfirmarExclusao(bool),
+    Filtro(String),
     Form(Campo),
     Senha(String),
     ConfirmarSenha(bool),
@@ -70,6 +72,7 @@ enum Msg {
     Colunas(u64, String, Result<Vec<(String, String)>, String>),
     AbrirTabela(u64, Tabela),
     // Consultas
+    EditorMudou,
     Executar,
     ExecutarTudo,
     Executado(Result<Resultado, String>, Duration),
@@ -94,6 +97,8 @@ struct App {
     /// Pedindo a senha para conectar: a conexão e o que já foi digitado.
     pedir_senha: Option<(u64, String)>,
     excluir: Option<u64>,
+    /// O texto do filtro da árvore de tabelas.
+    filtro: String,
     maximizada: bool,
     // Janelas auxiliares (auxiliares.rs)
     config: config::Config,
@@ -161,6 +166,7 @@ impl App {
             form: None,
             pedir_senha: None,
             excluir: None,
+            filtro: String::new(),
             maximizada: false,
             config,
             janelas: Default::default(),
@@ -185,7 +191,7 @@ impl App {
         }
     }
 
-    /// Guarda o texto do editor (ao rodar e ao fechar), para nada se perder entre sessões.
+    /// Guarda o texto do editor a cada mudança, para nada se perder se o app ou o computador cair.
     fn gravar_rascunho(&self) {
         if let Some(a) = arquivo_rascunho() {
             if let Some(p) = a.parent() {
@@ -194,6 +200,18 @@ impl App {
             let tmp = a.with_extension("tmp");
             if std::fs::write(&tmp, self.editor.text()).is_ok() {
                 let _ = std::fs::rename(tmp, a);
+            }
+        }
+    }
+
+    /// O que o Ctrl+Enter roda: a seleção, ou o comando em volta do cursor.
+    fn comando_atual(&self) -> String {
+        match self.editor.selection().filter(|s| !s.trim().is_empty()) {
+            Some(s) => s,
+            None => {
+                // O pelicano conta linha e coluna a partir de 1; o motor, de 0.
+                let (l, c) = self.editor.cursor();
+                featherdb_core::comando_no_cursor(&self.editor.text(), l.saturating_sub(1), c.saturating_sub(1))
             }
         }
     }
@@ -305,6 +323,7 @@ impl pelicano::App for App {
                 }
                 self.excluir = None;
             }
+            Msg::Filtro(f) => self.filtro = f,
             Msg::Form(campo) => return self.update_form(campo),
             Msg::Senha(s) => {
                 if let Some((_, senha)) = &mut self.pedir_senha {
@@ -322,6 +341,10 @@ impl pelicano::App for App {
             }
             Msg::Conectado(id, r) => {
                 let Some(item) = self.item(id) else { return Task::none() };
+                // A conexão foi editada enquanto conectava: a resposta é da configuração antiga.
+                if !item.conectando {
+                    return Task::none();
+                }
                 item.conectando = false;
                 match r {
                     Ok(b) => {
@@ -398,15 +421,10 @@ impl pelicano::App for App {
                 return self.rodar(vec![format!("SELECT * FROM {}", t.qualificado(tipo))]);
             }
             Msg::Executar => {
-                let sql = match self.editor.selection().filter(|s| !s.trim().is_empty()) {
-                    Some(s) => s,
-                    None => {
-                        let (l, c) = self.editor.cursor();
-                        featherdb_core::comando_no_cursor(&self.editor.text(), l, c)
-                    }
-                };
-                return self.rodar(if sql.trim().is_empty() { Vec::new() } else { vec![sql] });
+                // Cada comando vai sozinho: nem todo driver ODBC aceita vários de uma vez.
+                return self.rodar(featherdb_core::dividir(&self.comando_atual()));
             }
+            Msg::EditorMudou => self.gravar_rascunho(),
             Msg::ExecutarTudo => return self.rodar(featherdb_core::dividir(&self.editor.text())),
             Msg::Executado(r, t) => {
                 self.executando = false;
@@ -584,7 +602,11 @@ impl App {
             if !item.expandido || item.banco.is_none() {
                 continue;
             }
-            for t in &item.tabelas {
+            // Bancos como o Datasphere têm milhares de visões: o filtro acha, e a árvore mostra no máximo
+            // MAX_ARVORE por conexão para a tela continuar leve.
+            let filtro = self.filtro.trim().to_lowercase();
+            let achadas: Vec<&Tabela> = item.tabelas.iter().filter(|t| filtro.is_empty() || t.nome.to_lowercase().contains(&filtro) || t.esquema.to_lowercase().contains(&filtro)).collect();
+            for t in achadas.iter().take(MAX_ARVORE).copied() {
                 let chave = t.qualificado(item.conexao.tipo);
                 let aberta = item.tabelas_abertas.contains(&chave);
                 let nome = if t.esquema.is_empty() || item.conexao.tipo == Tipo::MySql { t.nome.clone() } else { format!("{}.{}", t.esquema, t.nome) };
@@ -611,6 +633,10 @@ impl App {
                     }
                 }
             }
+            if achadas.len() > MAX_ARVORE {
+                let resto = achadas.len() - MAX_ARVORE;
+                lista = lista.push(container(text(trf("mais {}; use o filtro para achar", &[&resto])).size(12).color(COR_TEXTO_MUTED())).padding([4, 24]));
+            }
         }
         // As ações valem para a conexão ativa (a destacada na lista).
         let mut topo = row![text(tr("Conexões")).size(12).color(COR_TEXTO_MUTED()), horizontal_space()].align(Align::Center);
@@ -625,7 +651,13 @@ impl App {
         let topo = topo
             .push(acao("plus", tr("Nova conexão"), Some(Msg::Nova)))
             .padding(pelicano::Padding { top: 4.0, right: 6.0, bottom: 4.0, left: 12.0 });
-        container(column![topo, rolagem(container(lista).padding(pelicano::Padding { top: 0.0, right: 6.0, bottom: 8.0, left: 6.0 }))])
+        // O filtro só aparece quando há tabelas para filtrar.
+        let filtro: Element<'_, Msg> = if self.itens.iter().any(|i| !i.tabelas.is_empty()) {
+            container(pelicano::text_input(tr("Filtrar tabelas"), self.filtro.as_str()).on_input(Msg::Filtro).padding([5, 9]).size(12.5)).padding([0, 8]).into()
+        } else {
+            Space::new(0, 0).into()
+        };
+        container(column![topo, filtro, rolagem(container(lista).padding(pelicano::Padding { top: 0.0, right: 6.0, bottom: 8.0, left: 6.0 }))])
             .width(LARGURA_LATERAL)
             .height(Length::FILL)
             .style(|_| Style::default().background(COR_PAINEL_FAIXA()))
@@ -667,6 +699,7 @@ impl App {
             .line_numbers(true)
             .placeholder(tr("Escreva o SQL aqui. Ctrl+Enter roda o comando onde está o cursor."))
             .on_key(atalho)
+            .on_change(Msg::EditorMudou)
             .colors(move |linha| grade::cores_sql(linha, cor_chave, cor_comentario));
         let editor = container(editor).height(Length::Fill(2)).width(Length::FILL).style(|_| Style::default().background(COR_PAINEL()));
         column![editor, pelicano::horizontal_rule(1.0), container(self.view_resultado()).height(Length::Fill(3)).width(Length::FILL)].width(Length::FILL).into()
@@ -749,3 +782,17 @@ fn main() -> Result<(), pelicano::Error> {
     })
 }
 
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    #[test]
+    fn ctrl_enter_no_comeco_roda_o_primeiro_comando() {
+        // Antes do primeiro desenho o cursor do pelicano está em (1, 1): a primeira linha.
+        let mut app = App::novo(config::Config::default());
+        app.editor = Content::with_text("delete from b;\nselect 1");
+        assert_eq!(app.editor.cursor(), (1, 1));
+        assert_eq!(app.comando_atual(), "delete from b");
+    }
+}

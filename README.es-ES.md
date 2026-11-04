@@ -17,6 +17,7 @@ La idea de DBeaver, sin el peso: abre al instante y usa unos 100 MB de memoria.
 - **Editor SQL:** `Ctrl+Enter` ejecuta la sentencia del cursor (o la selección); `Alt+X`/`F5` ejecuta
   todo el script. Las consultas corren en segundo plano: la ventana nunca se congela.
 - **Árbol de tablas:** tablas, vistas y columnas con su tipo; doble clic en una tabla muestra los datos.
+  Un filtro encuentra la tabla en bases con miles de ellas.
 - **Resultado:** hasta 1.000 filas, en páginas de 200; copiar todo para pegar en FeatherSheet o Excel,
   o exportar CSV.
 - **Privado:** sin cuenta, sin telemetría. La contraseña nunca va al disco; las conexiones quedan en
