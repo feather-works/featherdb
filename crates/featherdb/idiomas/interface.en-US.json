@@ -270,5 +270,17 @@
  "Certificado do cliente": "Client certificate",
  "Chave do cliente": "Client key",
  "Conferir o certificado do servidor (desligue para servidor interno com certificado próprio)": "Verify the server certificate (turn off for an internal server with its own certificate)",
- "opcional": "optional"
+ "opcional": "optional",
+ "A linha {} tem a chave vazia: não dá para achar ela no banco.": "Row {} has an empty key: it cannot be found in the database.",
+ "Descartar": "Discard",
+ "Esta tabela não dá para editar aqui.": "This table cannot be edited here.",
+ "Mudanças salvas no banco.": "Changes saved to the database.",
+ "Não salvou (nada mudou no banco): {}": "Not saved (nothing changed in the database): {}",
+ "Salvar as mudanças?": "Save the changes?",
+ "Salvar no banco": "Save to database",
+ "Salvar": "Save",
+ "Só dá para editar a tabela aberta com clique duplo, e ela precisa de chave primária.": "You can only edit a table opened with a double click, and it needs a primary key.",
+ "clique duplo edita": "double-click to edit",
+ "{} célula(s) mudada(s)": "{} cell(s) changed",
+ "{} linha(s) vão mudar no banco:": "{} row(s) will change in the database:"
 }

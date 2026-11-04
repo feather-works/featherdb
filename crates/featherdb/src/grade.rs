@@ -46,6 +46,14 @@ const SOBE: &str = "M12 5v14M18 11l-6 -6M6 11l6 -6";
 const DESCE: &str = "M12 5v14M18 13l-6 6M6 13l6 6";
 const CHAVE: &str = "M16.555 3.843l3.602 3.602a2.877 2.877 0 0 1 0 4.069l-2.643 2.643a2.877 2.877 0 0 1 -4.069 0l-.301 -.301l-6.558 6.558a2 2 0 0 1 -1.239 .578l-.175 .008h-1.172a1 1 0 0 1 -.993 -.883l-.007 -.117v-1.172a2 2 0 0 1 .467 -1.284l.119 -.13l.414 -.414h2v-2h2v-2l2.144 -2.144l-.301 -.301a2.877 2.877 0 0 1 0 -4.069l2.643 -2.643a2.877 2.877 0 0 1 4.069 0zM15 9h.01";
 
+/// O valor de uma célula (NULL apagado, em fonte de código).
+fn valor(v: Option<&str>) -> Element<'static, Msg> {
+    match v {
+        Some(v) => text(resumo(v)).size(12.5).no_wrap().ellipsis().into(),
+        None => text("NULL").size(11.5).font(Font::MONO).color(COR_TEXTO_MUTED()).into(),
+    }
+}
+
 /// O ícone da família do tipo (números, texto, data, sim/não, JSON); a chave primária ganha a chave na cor de destaque.
 pub(crate) fn icone_tipo(tipo: &str, chave: bool, tamanho: f32) -> pelicano::SvgView {
     if chave {
@@ -91,7 +99,18 @@ pub(crate) fn ordem(r: &Resultado, ordenacao: Option<(usize, bool)>, filtro: &st
 /// A grade do resultado. Monta só as linhas e colunas que aparecem na tela (`pos` e `vista` vêm da
 /// própria rolagem): mil linhas rolam tão leve quanto dez. O cabeçalho desce junto e fica sempre no topo.
 /// `linhas` é a ordem da tela ([`ordem`]); clicar no nome da coluna ordena por ela.
-pub(crate) fn view<'a>(r: &'a Resultado, linhas: &[usize], ordenacao: Option<(usize, bool)>, pos: (f32, f32), vista: (f32, f32), versao: u64) -> Element<'a, Msg> {
+/// Com `celulas` (tabela com chave), clique duplo abre a célula para editar e as mudadas ficam marcadas.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn view<'a>(
+    r: &'a Resultado,
+    linhas: &[usize],
+    ordenacao: Option<(usize, bool)>,
+    celulas: Option<&crate::celulas::Celulas>,
+    pos: (f32, f32),
+    vista: (f32, f32),
+    versao: u64,
+) -> Element<'a, Msg> {
+    use crate::celulas::AcaoCelula;
     let larg = larguras(r);
     // Início de cada coluna (com a linha de 1 px entre elas), depois da coluna do número.
     let mut pre = vec![0.0f32];
@@ -134,14 +153,30 @@ pub(crate) fn view<'a>(r: &'a Resultado, linhas: &[usize], ordenacao: Option<(us
     };
 
     let faixas = (ini..fim).map(|i| {
-        let l = &r.linhas[linhas[i]];
+        let ri = linhas[i];
+        let l = &r.linhas[ri];
         let num = celula(text((i + 1).to_string()).size(11.5).color(COR_TEXTO_MUTED()).into(), LARGURA_NUM, ALTURA_LINHA, true);
         let cel = |c: usize| {
-            let t: Element<'static, Msg> = match l.get(c).and_then(|v| v.as_deref()) {
-                Some(v) => text(resumo(v)).size(12.5).no_wrap().ellipsis().into(),
-                None => text("NULL").size(11.5).font(Font::MONO).color(COR_TEXTO_MUTED()).into(),
+            let Some(ed) = celulas else {
+                return celula(valor(l.get(c).and_then(|v| v.as_deref())), larg[c], ALTURA_LINHA, numerica[c]);
             };
-            celula(t, larg[c], ALTURA_LINHA, numerica[c])
+            if let Some((_, _, t)) = ed.editando.as_ref().filter(|(el, ec, _)| (*el, *ec) == (ri, c)) {
+                let campo = pelicano::text_input("", t.clone())
+                    .on_input(|s| Msg::Celula(AcaoCelula::Texto(s)))
+                    .on_submit(Msg::Celula(AcaoCelula::Guardar))
+                    .autofocus((ri * 10_000 + c) as u64 + 1)
+                    .size(12.5)
+                    .padding([4, 6]);
+                return container(campo).width(larg[c]).height(ALTURA_LINHA).padding([2, 2]).align_y(Align::Center).into();
+            }
+            let mudou = ed.pendentes.get(&(ri, c));
+            let v = match mudou {
+                Some(m) => m.as_deref(),
+                None => l.get(c).and_then(|v| v.as_deref()),
+            };
+            let e = celula(valor(v), larg[c], ALTURA_LINHA, numerica[c]);
+            let e: Element<'static, Msg> = if mudou.is_some() { container(e).style(|_| Style::default().background(COR_AZUL_FUNDO())).into() } else { e };
+            pelicano::mouse_area(e).on_double_click(Msg::Celula(AcaoCelula::Editar(ri, c))).into()
         };
         let par = i % 2 == 1;
         container(faixa(num, ALTURA_LINHA, &cel))

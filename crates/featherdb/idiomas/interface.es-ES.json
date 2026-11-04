@@ -270,5 +270,17 @@
  "Certificado do cliente": "Certificado del cliente",
  "Chave do cliente": "Clave del cliente",
  "Conferir o certificado do servidor (desligue para servidor interno com certificado próprio)": "Verificar el certificado del servidor (desactívalo para un servidor interno con certificado propio)",
- "opcional": "opcional"
+ "opcional": "opcional",
+ "A linha {} tem a chave vazia: não dá para achar ela no banco.": "La fila {} tiene la clave vacía: no se puede encontrar en la base.",
+ "Descartar": "Descartar",
+ "Esta tabela não dá para editar aqui.": "Esta tabla no se puede editar aquí.",
+ "Mudanças salvas no banco.": "Cambios guardados en la base.",
+ "Não salvou (nada mudou no banco): {}": "No se guardó (nada cambió en la base): {}",
+ "Salvar as mudanças?": "¿Guardar los cambios?",
+ "Salvar no banco": "Guardar en la base",
+ "Salvar": "Guardar",
+ "Só dá para editar a tabela aberta com clique duplo, e ela precisa de chave primária.": "Solo se puede editar la tabla abierta con doble clic, y necesita clave primaria.",
+ "clique duplo edita": "doble clic para editar",
+ "{} célula(s) mudada(s)": "{} celda(s) cambiada(s)",
+ "{} linha(s) vão mudar no banco:": "{} fila(s) van a cambiar en la base:"
 }

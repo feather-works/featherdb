@@ -154,6 +154,21 @@ pub fn sql_alterar(tipo: Tipo, tabela: &str, antes: &Coluna, depois: &Coluna) ->
     Ok(s)
 }
 
+/// O UPDATE de uma linha editada na grade: as colunas mudadas no SET e a chave primária no WHERE
+/// (com o valor que a linha tinha). `None` quando a chave é vazia (NULL): sem ela não dá para achar a linha.
+pub fn sql_atualizar(tipo: Tipo, tabela: &str, colunas: &[String], chaves: &[usize], linha: &[Option<String>], mudancas: &[(usize, Option<String>)]) -> Option<String> {
+    let q = |n: &str| identificador(n, tipo);
+    // No MySQL a barra invertida é escape dentro das aspas: vai dobrada para gravar como está.
+    let texto = |v: &str| if tipo == Tipo::MySql { crate::literal(&v.replace('\\', "\\\\")) } else { crate::literal(v) };
+    let valor = |v: &Option<String>| v.as_deref().map_or("NULL".to_owned(), texto);
+    let set: Vec<String> = mudancas.iter().map(|(c, v)| format!("{} = {}", q(&colunas[*c]), valor(v))).collect();
+    let mut onde = Vec::new();
+    for &k in chaves {
+        onde.push(format!("{} = {}", q(&colunas[k]), texto(linha.get(k)?.as_deref()?)));
+    }
+    (!set.is_empty() && !onde.is_empty()).then(|| format!("UPDATE {tabela} SET {} WHERE {}", set.join(", "), onde.join(" AND ")))
+}
+
 /// O `CREATE TABLE` montado pelas colunas (o padrão vem do catálogo já como expressão SQL).
 pub fn ddl(tipo: Tipo, tabela: &str, colunas: &[Coluna]) -> String {
     let q = |n: &str| identificador(n, tipo);
@@ -255,6 +270,18 @@ mod testes {
             ddl(Tipo::Postgres, "public.t", &cols),
             "CREATE TABLE public.t (\n  id integer NOT NULL DEFAULT nextval('t_id_seq'::regclass),\n  \"Nome\" varchar(80),\n  PRIMARY KEY (id)\n);\n"
         );
+    }
+
+    #[test]
+    fn update_da_linha_editada() {
+        let cols = ["id".to_owned(), "Nome".to_owned(), "nota".to_owned()];
+        let linha = [Some("7".to_owned()), Some("Ana".to_owned()), None];
+        assert_eq!(
+            sql_atualizar(Tipo::Postgres, "public.t", &cols, &[0], &linha, &[(1, Some("O'Neil".into())), (2, None)]).as_deref(),
+            Some("UPDATE public.t SET \"Nome\" = 'O''Neil', nota = NULL WHERE id = '7'")
+        );
+        assert_eq!(sql_atualizar(Tipo::MySql, "t", &cols, &[2], &linha, &[(1, None)]), None);
+        assert_eq!(sql_atualizar(Tipo::MySql, "t", &cols, &[0], &linha, &[(1, Some("C:\\x".into()))]).as_deref(), Some("UPDATE t SET `Nome` = 'C:\\\\x' WHERE id = '7'"));
     }
 
     #[test]

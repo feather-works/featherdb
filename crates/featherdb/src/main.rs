@@ -2,6 +2,7 @@
 //! editor de SQL e a grade do resultado. Postgres, MySQL, SQLite e qualquer banco com ODBC.
 mod ajuda;
 mod auxiliares;
+mod celulas;
 mod completar;
 mod config;
 mod estrutura_ui;
@@ -110,6 +111,7 @@ enum Msg {
     DdlNoEditor,
     Formatar,
     Sugestao(completar::Tecla),
+    Celula(celulas::AcaoCelula),
     Explicar,
     EditarColuna(Option<Coluna>),
     Edicao(CampoColuna),
@@ -171,6 +173,8 @@ struct App {
     ddl: Option<(String, Option<Result<String, String>>)>,
     /// A lista de nomes para completar no editor, quando aberta.
     sugestao: Option<completar::Sugestao>,
+    /// As células editadas na grade, ainda não gravadas.
+    celulas: celulas::Celulas,
     edicao: Option<EdicaoColuna>,
     /// Depois de um ALTER TABLE: ler de novo as colunas desta tabela.
     recarregar: Option<(Alvo, Tabela)>,
@@ -264,6 +268,7 @@ impl App {
             aba: Aba::Dados,
             ddl: None,
             sugestao: None,
+            celulas: Default::default(),
             edicao: None,
             recarregar: None,
             aviso: String::new(),
@@ -473,6 +478,10 @@ impl App {
                     if r.is_err() {
                         break;
                     }
+                }
+                // Gravação em bloco (BEGIN … COMMIT) que falhou no meio: desfaz o que já tinha ido.
+                if r.is_err() && comandos.first().is_some_and(|c| c == "BEGIN") {
+                    let _ = b.executar("ROLLBACK", 0);
                 }
                 (r, inicio.elapsed(), nova)
             },
@@ -923,6 +932,7 @@ impl pelicano::App for App {
                 return self.sugerir();
             }
             Msg::Sugestao(t) => self.tecla_sugestao(t),
+            Msg::Celula(a) => return self.update_celula(a),
             Msg::ExecutarTudo => {
                 self.tabela_aberta = None;
                 self.aba = Aba::Dados;
@@ -956,12 +966,26 @@ impl pelicano::App for App {
                             self.aviso = tr("Coluna alterada.").to_owned();
                             return self.carregar_colunas(alvo, t, false);
                         }
+                        // Gravou as células editadas: lê a tabela de novo para mostrar como ficou no banco.
+                        if std::mem::take(&mut self.celulas.recarregar) {
+                            self.celulas = Default::default();
+                            self.aviso = tr("Mudanças salvas no banco.").to_owned();
+                            if let Some((alvo, t)) = self.tabela_aberta.clone() {
+                                return self.update(Msg::AbrirTabela(alvo, t));
+                            }
+                        }
+                        self.celulas = Default::default();
                         self.resultado = Some(r);
                         self.ordenacao = None;
                         self.filtro_grade.clear();
                         self.reordenar();
                     }
                     Err(e) => {
+                        // Falhou ao gravar: a grade fica e as mudanças continuam marcadas para corrigir e tentar de novo.
+                        if std::mem::take(&mut self.celulas.recarregar) {
+                            self.aviso = trf("Não salvou (nada mudou no banco): {}", &[&e]);
+                            return Task::none();
+                        }
                         self.recarregar = None;
                         self.aba = Aba::Dados;
                         self.erro = Some(e);
@@ -1026,6 +1050,12 @@ impl pelicano::App for App {
         if self.historico.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::Historico(None));
         }
+        if self.celulas.confirmar.is_some() {
+            return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::Celula(celulas::AcaoCelula::Confirmar(false)));
+        }
+        if self.celulas.editando.is_some() && matches!(key, Key::Named(NamedKey::Escape)) {
+            return Some(Msg::Celula(celulas::AcaoCelula::Cancelar));
+        }
         if self.pedir_senha.is_some() || self.form.is_some() || self.excluir.is_some() || self.perigo.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then(|| match () {
                 _ if self.perigo.is_some() => Msg::ConfirmarPerigo(false),
@@ -1060,6 +1090,9 @@ impl pelicano::App for App {
         }
         if self.historico.is_some() {
             return self.view_historico(janela);
+        }
+        if self.celulas.confirmar.is_some() {
+            return self.view_salvar_celulas(janela);
         }
         if let Some(f) = &self.form {
             return f.view().sobre(janela);
@@ -1461,7 +1494,23 @@ impl App {
         };
         let tempo = self.tempo.map_or(String::new(), |t| trf("{} ms", &[&t.as_millis()]));
         let filtro = pelicano::text_input(tr("Filtrar linhas"), &self.filtro_grade).on_input(Msg::FiltroGrade).size(12.5).padding([4, 8]).width(180);
-        barra = barra.push(chip(contagem)).push(chip(tempo)).push(horizontal_space()).push(filtro);
+        barra = barra.push(chip(contagem)).push(chip(tempo)).push(horizontal_space());
+        if self.chaves_editaveis().is_some() {
+            use celulas::AcaoCelula as A;
+            if self.celulas.editando.is_some() {
+                barra = barra.push(button(text("NULL").size(12).font(Font::MONO)).padding([4, 10]).style(estilo_botao_secundario).on_press(Msg::Celula(A::Nulo)));
+            }
+            let n = self.celulas.pendentes.len();
+            if n > 0 {
+                barra = barra
+                    .push(chip(trf("{} célula(s) mudada(s)", &[&n])))
+                    .push(button(text(tr("Descartar")).size(12.5)).padding([4, 10]).style(estilo_botao_secundario).on_press(Msg::Celula(A::Descartar)))
+                    .push(button(text(tr("Salvar")).size(12.5).font(Font::SEMIBOLD)).padding([4, 12]).style(estilo_botao_primario).on_press(Msg::Celula(A::Salvar)));
+            } else if self.celulas.editando.is_none() {
+                barra = barra.push(text(tr("clique duplo edita")).size(11.5).color(COR_TEXTO_MUTED()));
+            }
+        }
+        barra = barra.push(filtro);
         barra
             .push(acao_pequena(feather_ui::icones::icone_traco("copy", 15.0), tr("Copiar tudo (cola na planilha)"), Some(Msg::Copiar)))
             .push(acao_pequena(feather_ui::icones::icone_traco("file-export", 15.0), tr("Exportar CSV"), Some(Msg::ExportarCsv)))
@@ -1484,7 +1533,8 @@ impl App {
             let n = r.afetadas.unwrap_or(0);
             return vazio("check", tr("Pronto"), &trf("{} linha(s) afetada(s).", &[&n]));
         }
-        grade::view(r, &self.visiveis, self.ordenacao, self.rolagem, self.vista, self.versao_resultado)
+        let celulas = self.chaves_editaveis().map(|_| &self.celulas);
+        grade::view(r, &self.visiveis, self.ordenacao, celulas, self.rolagem, self.vista, self.versao_resultado)
     }
 
     fn rodape(&self) -> Element<'_, Msg> {
