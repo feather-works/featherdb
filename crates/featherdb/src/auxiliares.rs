@@ -52,7 +52,7 @@ pub(crate) static VERSOES: [novidades::Versao; 1] = [novidades::Versao {
         ("copy", "Leve para a planilha", "Copie o resultado para o FeatherSheet ou o Excel, ou exporte CSV."),
     ],
     tambem: &[
-        "A senha nunca é gravada no disco.",
+        "A senha fica no cofre de senhas do sistema, nunca num arquivo.",
         "O SQL do editor volta como você deixou na próxima vez.",
         "Interface em português, inglês e espanhol.",
         "Filtro na árvore para bancos com milhares de tabelas.",

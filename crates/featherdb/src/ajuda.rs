@@ -51,7 +51,7 @@ fn montar() -> Catalogo {
                         t("Conecte no seu banco em um minuto."),
                         t("Clique em Nova conexão (o + no alto), escolha o banco e preencha o servidor, o banco e o usuário."),
                         t("Testar confere sem salvar. Salvar e conectar guarda a conexão na lista à esquerda."),
-                        t("A senha nunca vai para o disco: o FeatherDB pede uma vez e lembra só até você fechar o programa."),
+                        t("Com Lembrar a senha ligado, ela fica no cofre de senhas do sistema (o mesmo do navegador) e não é pedida de novo. Nunca vai para um arquivo de texto."),
                     ]),
                     topico("primeira-consulta", "Sua primeira consulta", vec![
                         t("Escreva SQL e rode com Ctrl+Enter."),

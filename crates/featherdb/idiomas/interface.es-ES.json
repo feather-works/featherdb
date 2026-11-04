@@ -7,7 +7,6 @@
  "Nesta seção": "En esta sección",
  "Clique em Nova conexão (o + no alto), escolha o banco e preencha o servidor, o banco e o usuário.": "Haga clic en Nueva conexión (el + arriba), elija la base y complete el servidor, la base de datos y el usuario.",
  "Testar confere sem salvar. Salvar e conectar guarda a conexão na lista à esquerda.": "Probar verifica sin guardar. Guardar y conectar guarda la conexión en la lista de la izquierda.",
- "A senha nunca vai para o disco: o FeatherDB pede uma vez e lembra só até você fechar o programa.": "La contraseña nunca va al disco: FeatherDB la pide una vez y la recuerda solo hasta que cierre el programa.",
  "Escreva o SQL no editor e aperte Ctrl+Enter: roda o comando onde está o cursor (entre os ponto e vírgula).": "Escriba el SQL en el editor y pulse Ctrl+Enter: ejecuta la sentencia donde está el cursor (entre los punto y coma).",
  "Com um trecho selecionado, roda só o trecho. Para rodar o script inteiro, Alt+X ou F5.": "Con un fragmento seleccionado, se ejecuta solo ese fragmento. Para ejecutar todo el script, Alt+X o F5.",
  "Preencha servidor, porta, banco e usuário. Bancos na nuvem quase sempre exigem a opção de conexão criptografada (TLS).": "Complete servidor, puerto, base de datos y usuario. Las bases en la nube casi siempre exigen la opción de conexión cifrada (TLS).",
@@ -68,7 +67,6 @@
  "Tabelas, visões e colunas com o tipo; clique duplo mostra os dados.": "Tablas, vistas y columnas con su tipo; doble clic muestra los datos.",
  "Leve para a planilha": "Llévelo a la hoja de cálculo",
  "Copie o resultado para o FeatherSheet ou o Excel, ou exporte CSV.": "Copie el resultado a FeatherSheet o Excel, o exporte CSV.",
- "A senha nunca é gravada no disco.": "La contraseña nunca se guarda en el disco.",
  "O SQL do editor volta como você deixou na próxima vez.": "El SQL del editor vuelve como lo dejó la próxima vez.",
  "Interface em português, inglês e espanhol.": "Interfaz en portugués, inglés y español.",
  "Aparência": "Apariencia",
@@ -96,7 +94,6 @@
  "Testando…": "Probando…",
  "Testar": "Probar",
  "Salvar e conectar": "Guardar y conectar",
- "Senha (não fica guardada)": "Contraseña (no se guarda)",
  "Conectou. Tudo certo.": "Conectado. Todo en orden.",
  "Não foi possível guardar as conexões: {}": "No se pudieron guardar las conexiones: {}",
  "A conexão travou; desconecte e conecte de novo.": "La conexión se trabó; desconecte y vuelva a conectar.",
@@ -109,7 +106,6 @@
  "Salvo em {}": "Guardado en {}",
  "Não foi possível salvar: {}": "No se pudo guardar: {}",
  "Senha": "Contraseña",
- "A senha não é guardada no disco; vale até fechar o FeatherDB.": "La contraseña no se guarda en el disco; vale hasta cerrar FeatherDB.",
  "Conectar em {}": "Conectar a {}",
  "Conectar": "Conectar",
  "A conexão “{}” sai da lista. O banco de dados não é mexido.": "La conexión «{}» sale de la lista. La base de datos no se toca.",
@@ -172,5 +168,9 @@
  "Mostrar as colunas": "Mostrar las columnas",
  "Ver os dados (SELECT *)": "Ver los datos (SELECT *)",
  "Botão direito numa tabela: ver os dados, escrever o SELECT com as colunas no editor, contar as linhas ou copiar o nome. Na conexão: conectar, editar e excluir.": "Clic derecho en una tabla: ver los datos, escribir el SELECT con las columnas en el editor, contar las filas o copiar el nombre. En la conexión: conectar, editar y eliminar.",
- "Menu do botão direito nas tabelas e nas conexões (SELECT, COUNT, editar).": "Menú de clic derecho en tablas y conexiones (SELECT, COUNT, editar)."
+ "Menu do botão direito nas tabelas e nas conexões (SELECT, COUNT, editar).": "Menú de clic derecho en tablas y conexiones (SELECT, COUNT, editar).",
+ "A senha não foi guardada no cofre do sistema: {}": "La contraseña no se guardó en el almacén del sistema: {}",
+ "Lembrar a senha neste computador (no cofre de senhas do sistema)": "Recordar la contraseña en esta computadora (en el almacén de contraseñas del sistema)",
+ "Com Lembrar a senha ligado, ela fica no cofre de senhas do sistema (o mesmo do navegador) e não é pedida de novo. Nunca vai para um arquivo de texto.": "Con Recordar la contraseña activado, queda en el almacén de contraseñas del sistema (el mismo del navegador) y no se vuelve a pedir. Nunca va a un archivo de texto.",
+ "A senha fica no cofre de senhas do sistema, nunca num arquivo.": "La contraseña queda en el almacén de contraseñas del sistema, nunca en un archivo."
 }

@@ -14,7 +14,9 @@ outro projeto) e `../feather-ui-pelicano/GUIA-JANELAS.md` (ícones só Tabler, c
   ODBC é o caminho para Datasphere/HANA, TIBCO TDV e outros (o papel do JDBC no DBeaver, sem Java).
 - `Content::cursor()` do pelicano conta de 1; o motor (`comando_no_cursor`) conta de 0 (`App::comando_atual`).
 - A interface só chama o motor; consultas rodam em `spawn_blocking` (a janela nunca trava).
-- A senha nunca vai para o disco. Arquivos em `~/.config/featherdb/`: `config.txt`, `conexoes.txt`, `rascunho.sql`.
+- A senha nunca vai para arquivo: "Lembrar a senha" (ligado por padrão, pedido do usuário em 04/11/2026)
+  guarda no cofre do sistema (`featherdb-core::cofre`, crate `keyring`; Secret Service no Linux), só depois
+  de conectar com sucesso. Excluir a conexão ou desligar o lembrar apaga do cofre. Arquivos em `~/.config/featherdb/`: `config.txt`, `conexoes.txt`, `rascunho.sql`.
 - Idiomas: o texto em português no código é a chave; `idiomas/interface.{en-US,es-ES}.json`. Os testes
   conferem que todo `tr`/`trf` literal, a Ajuda e as Novidades têm tradução nas duas línguas.
 - Marca: a pena da suíte recolorida em `#0b7285` dentro do app (`main.rs::marca`); passar para

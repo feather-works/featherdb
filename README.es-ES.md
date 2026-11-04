@@ -22,8 +22,8 @@ La idea de DBeaver, sin el peso: abre al instante y usa unos 100 MB de memoria.
   Un filtro encuentra la tabla en bases con miles de ellas.
 - **Resultado:** hasta 1.000 filas, en páginas de 200; copiar todo para pegar en FeatherSheet o Excel,
   o exportar CSV.
-- **Privado:** sin cuenta, sin telemetría. La contraseña nunca va al disco; las conexiones quedan en
-  `~/.config/featherdb/conexoes.txt` (sin contraseña) y el texto del editor en `rascunho.sql`.
+- **Privado:** sin cuenta, sin telemetría. La contraseña solo va al almacén de contraseñas del sistema (GNOME Keyring/KWallet,
+  Administrador de credenciales de Windows), nunca a un archivo; las conexiones quedan en `~/.config/featherdb/conexoes.txt` y el texto del editor en `rascunho.sql`.
 - Ayuda (F1), Configuración (tema, color de acento, idioma) y Novedades, en portugués, inglés y español.
 
 ## Compilar

@@ -7,7 +7,6 @@
  "Nesta seção": "In this section",
  "Clique em Nova conexão (o + no alto), escolha o banco e preencha o servidor, o banco e o usuário.": "Click New connection (the + at the top), pick the database type and fill in the server, database and user.",
  "Testar confere sem salvar. Salvar e conectar guarda a conexão na lista à esquerda.": "Test checks without saving. Save and connect keeps the connection in the list on the left.",
- "A senha nunca vai para o disco: o FeatherDB pede uma vez e lembra só até você fechar o programa.": "The password never goes to disk: FeatherDB asks once and remembers it only until you close the program.",
  "Escreva o SQL no editor e aperte Ctrl+Enter: roda o comando onde está o cursor (entre os ponto e vírgula).": "Write SQL in the editor and press Ctrl+Enter: it runs the statement under the cursor (between semicolons).",
  "Com um trecho selecionado, roda só o trecho. Para rodar o script inteiro, Alt+X ou F5.": "With text selected, only the selection runs. To run the whole script, Alt+X or F5.",
  "Preencha servidor, porta, banco e usuário. Bancos na nuvem quase sempre exigem a opção de conexão criptografada (TLS).": "Fill in server, port, database and user. Cloud databases almost always require the encrypted connection (TLS) option.",
@@ -68,7 +67,6 @@
  "Tabelas, visões e colunas com o tipo; clique duplo mostra os dados.": "Tables, views and columns with their types; double-click shows the data.",
  "Leve para a planilha": "Take it to the spreadsheet",
  "Copie o resultado para o FeatherSheet ou o Excel, ou exporte CSV.": "Copy the result to FeatherSheet or Excel, or export CSV.",
- "A senha nunca é gravada no disco.": "The password is never written to disk.",
  "O SQL do editor volta como você deixou na próxima vez.": "The editor's SQL comes back as you left it next time.",
  "Interface em português, inglês e espanhol.": "Interface in Portuguese, English and Spanish.",
  "Aparência": "Appearance",
@@ -96,7 +94,6 @@
  "Testando…": "Testing…",
  "Testar": "Test",
  "Salvar e conectar": "Save and connect",
- "Senha (não fica guardada)": "Password (not stored)",
  "Conectou. Tudo certo.": "Connected. All good.",
  "Não foi possível guardar as conexões: {}": "Could not save the connections: {}",
  "A conexão travou; desconecte e conecte de novo.": "The connection got stuck; disconnect and connect again.",
@@ -109,7 +106,6 @@
  "Salvo em {}": "Saved to {}",
  "Não foi possível salvar: {}": "Could not save: {}",
  "Senha": "Password",
- "A senha não é guardada no disco; vale até fechar o FeatherDB.": "The password is not stored on disk; it lasts until you close FeatherDB.",
  "Conectar em {}": "Connect to {}",
  "Conectar": "Connect",
  "A conexão “{}” sai da lista. O banco de dados não é mexido.": "The connection “{}” leaves the list. The database itself is not touched.",
@@ -172,5 +168,9 @@
  "Mostrar as colunas": "Show the columns",
  "Ver os dados (SELECT *)": "View the data (SELECT *)",
  "Botão direito numa tabela: ver os dados, escrever o SELECT com as colunas no editor, contar as linhas ou copiar o nome. Na conexão: conectar, editar e excluir.": "Right-click a table: view the data, write the SELECT with its columns in the editor, count the rows or copy the name. On a connection: connect, edit and delete.",
- "Menu do botão direito nas tabelas e nas conexões (SELECT, COUNT, editar).": "Right-click menu on tables and connections (SELECT, COUNT, edit)."
+ "Menu do botão direito nas tabelas e nas conexões (SELECT, COUNT, editar).": "Right-click menu on tables and connections (SELECT, COUNT, edit).",
+ "A senha não foi guardada no cofre do sistema: {}": "The password was not saved in the system vault: {}",
+ "Lembrar a senha neste computador (no cofre de senhas do sistema)": "Remember the password on this computer (in the system's password vault)",
+ "Com Lembrar a senha ligado, ela fica no cofre de senhas do sistema (o mesmo do navegador) e não é pedida de novo. Nunca vai para um arquivo de texto.": "With Remember the password on, it is kept in the system's password vault (the same one your browser uses) and is not asked again. It never goes to a text file.",
+ "A senha fica no cofre de senhas do sistema, nunca num arquivo.": "The password stays in the system's password vault, never in a file."
 }

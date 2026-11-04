@@ -37,7 +37,7 @@ struct Item {
     id: u64,
     conexao: Conexao,
     banco: Option<Aberto>,
-    /// A senha digitada nesta sessão (nunca vai para o disco).
+    /// A senha desta sessão (digitada ou lida do cofre do sistema; nunca vai para arquivo).
     senha: Option<String>,
     conectando: bool,
     expandido: bool,
@@ -69,6 +69,7 @@ enum Msg {
     Filtro(String),
     Form(Campo),
     Senha(String),
+    LembrarSenha(bool),
     ConfirmarSenha(bool),
     Conectado(u64, Result<Aberto, String>),
     Desconectar(u64),
@@ -252,8 +253,12 @@ impl App {
             return Task::none();
         }
         if item.senha.is_none() && App::precisa_senha(&item.conexao) {
-            self.pedir_senha = Some((id, String::new()));
-            return Task::none();
+            // Senha lembrada no cofre do sistema: conecta sem perguntar.
+            item.senha = item.conexao.lembrar_senha.then(|| featherdb_core::cofre::ler(&item.conexao)).flatten();
+            if item.senha.is_none() {
+                self.pedir_senha = Some((id, String::new()));
+                return Task::none();
+            }
         }
         item.conectando = true;
         let (c, senha) = (item.conexao.clone(), item.senha.clone().unwrap_or_default());
@@ -330,12 +335,17 @@ impl pelicano::App for App {
             Msg::Nova => self.form = Some(Formulario::novo(None, Conexao::nova(Tipo::Postgres))),
             Msg::Editar(id) => {
                 if let Some(i) = self.itens.iter().find(|i| i.id == id) {
-                    self.form = Some(Formulario::novo(Some(id), i.conexao.clone()));
+                    // A senha já configurada vem preenchida: salvar a edição não obriga a digitar de novo.
+                    let senha = i.senha.clone().or_else(|| i.conexao.lembrar_senha.then(|| featherdb_core::cofre::ler(&i.conexao)).flatten());
+                    self.form = Some(Formulario::novo(Some(id), i.conexao.clone()).com_senha(senha.unwrap_or_default()));
                 }
             }
             Msg::Excluir(id) => self.excluir = Some(id),
             Msg::ConfirmarExclusao(sim) => {
                 if let (true, Some(id)) = (sim, self.excluir) {
+                    if let Some(i) = self.itens.iter().find(|i| i.id == id) {
+                        featherdb_core::cofre::apagar(&i.conexao);
+                    }
                     self.itens.retain(|i| i.id != id);
                     if self.ativa == Some(id) {
                         self.ativa = self.itens.first().map(|i| i.id);
@@ -350,6 +360,16 @@ impl pelicano::App for App {
                 if let Some((_, senha)) = &mut self.pedir_senha {
                     *senha = s;
                 }
+            }
+            Msg::LembrarSenha(v) => {
+                let Some((id, _)) = self.pedir_senha else { return Task::none() };
+                if let Some(i) = self.item(id) {
+                    i.conexao.lembrar_senha = v;
+                    if !v {
+                        featherdb_core::cofre::apagar(&i.conexao);
+                    }
+                }
+                self.gravar_conexoes();
             }
             Msg::ConfirmarSenha(sim) => {
                 let Some((id, senha)) = self.pedir_senha.take() else { return Task::none() };
@@ -369,6 +389,13 @@ impl pelicano::App for App {
                 item.conectando = false;
                 match r {
                     Ok(b) => {
+                        // Só guarda a senha depois de ela funcionar.
+                        if let (true, Some(senha)) = (item.conexao.lembrar_senha && App::precisa_senha(&item.conexao), &item.senha) {
+                            if let Err(e) = featherdb_core::cofre::gravar(&item.conexao, senha) {
+                                self.aviso = trf("A senha não foi guardada no cofre do sistema: {}", &[&e]);
+                            }
+                        }
+                        let Some(item) = self.item(id) else { return Task::none() };
                         item.banco = Some(b);
                         item.expandido = true;
                         self.erro = None;
@@ -580,7 +607,9 @@ impl pelicano::App for App {
         if let Some((id, senha)) = &self.pedir_senha {
             let rotulo = self.itens.iter().find(|i| i.id == *id).map(|i| i.conexao.rotulo()).unwrap_or_default();
             let campo = pelicano::text_input(tr("Senha"), senha.as_str()).secure(true).on_input(Msg::Senha).on_submit(Msg::ConfirmarSenha(true)).autofocus(1).padding([7, 10]);
-            let corpo = column![text(tr("A senha não é guardada no disco; vale até fechar o FeatherDB.")).size(12.5).color(COR_TEXTO_MUTED()), campo].spacing(12);
+            let lembrar = self.itens.iter().find(|i| i.id == *id).is_some_and(|i| i.conexao.lembrar_senha);
+            let caixa = pelicano::checkbox(tr("Lembrar a senha neste computador (no cofre de senhas do sistema)"), lembrar).on_toggle(Msg::LembrarSenha).size(13);
+            let corpo = column![campo, caixa].spacing(12);
             return feather_ui::dialogo::Dialogo::new(trf("Conectar em {}", &[&rotulo]), corpo)
                 .icone("lock")
                 .largura(420.0)

@@ -22,8 +22,8 @@ Think DBeaver, without the weight: it opens instantly and uses about 100 MB of R
   A filter finds tables in databases with thousands of them.
 - **Results:** up to 1,000 rows, in pages of 200; copy everything to paste into FeatherSheet or Excel,
   or export CSV.
-- **Private:** no account, no telemetry. Passwords are never written to disk; connections are kept in
-  `~/.config/featherdb/conexoes.txt` (without passwords) and the editor text in `rascunho.sql`.
+- **Private:** no account, no telemetry. Passwords go only to the system's password vault (GNOME Keyring/KWallet,
+  Windows Credential Manager), never to a file; connections are kept in `~/.config/featherdb/conexoes.txt` and the editor text in `rascunho.sql`.
 - Help (F1), Settings (theme, accent color, language) and What's new, in Portuguese, English and Spanish.
 
 ## Build

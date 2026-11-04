@@ -29,6 +29,7 @@ pub(crate) enum Campo {
     Senha(String),
     Caminho(String),
     Tls(bool),
+    Lembrar(bool),
     EscolherArquivo,
     Testar,
     Testado(Result<(), String>),
@@ -40,6 +41,11 @@ pub(crate) enum Campo {
 const EXEMPLOS_ODBC: &str = "DSN=meu_banco\nDriver={HDBODBC};ServerNode=<host>:443;Encrypt=TRUE   (SAP HANA / Datasphere)\nDriver={TDV 8.0};Host=<host>;Port=9401   (TIBCO TDV)\nDriver={ODBC Driver 18 for SQL Server};Server=<host>;Database=<banco>";
 
 impl Formulario {
+    pub(crate) fn com_senha(mut self, senha: String) -> Formulario {
+        self.senha = senha;
+        self
+    }
+
     pub(crate) fn novo(editando: Option<u64>, c: Conexao) -> Formulario {
         Formulario { editando, porta: c.porta.to_string(), c, senha: String::new(), testando: false, teste: None }
     }
@@ -92,6 +98,7 @@ impl Formulario {
                     column![text(tr("Porta")).size(12).color(COR_TEXTO_MUTED()), text_input("", self.porta.as_str()).on_input(|s| Msg::Form(Campo::Porta(s))).padding([6, 9]).size(13)].spacing(4).width(100)].spacing(12));
                 corpo = corpo.push(campo(tr("Banco de dados"), &self.c.banco, Campo::Banco));
                 corpo = corpo.push(row![campo(tr("Usuário"), &self.c.usuario, Campo::Usuario), self.campo_senha()].spacing(12));
+                corpo = corpo.push(self.caixa_lembrar());
                 corpo = corpo.push(checkbox(tr("Conexão criptografada (TLS), exigida pela maioria dos bancos na nuvem"), self.c.tls).on_toggle(|v| Msg::Form(Campo::Tls(v))).size(13));
             }
             Tipo::Sqlite => {
@@ -107,6 +114,7 @@ impl Formulario {
                 corpo = corpo.push(text(tr("Instale o driver ODBC do fornecedor (SAP HANA para o Datasphere, TIBCO para o TDV…) e escreva a string. Exemplos:")).size(12).color(COR_TEXTO_MUTED()));
                 corpo = corpo.push(text(EXEMPLOS_ODBC).size(11.5).font(pelicano::Font::MONO).color(COR_TEXTO_MUTED()));
                 corpo = corpo.push(row![campo(tr("Usuário (opcional)"), &self.c.usuario, Campo::Usuario), self.campo_senha()].spacing(12));
+                corpo = corpo.push(self.caixa_lembrar());
             }
         }
         if let Some((ok, msg)) = &self.teste {
@@ -122,9 +130,13 @@ impl Formulario {
             .primario(tr("Salvar e conectar"), Some(f(Campo::Salvar)))
     }
 
+    fn caixa_lembrar(&self) -> Element<'_, Msg> {
+        checkbox(tr("Lembrar a senha neste computador (no cofre de senhas do sistema)"), self.c.lembrar_senha).on_toggle(|v| Msg::Form(Campo::Lembrar(v))).size(13).into()
+    }
+
     fn campo_senha(&self) -> Element<'_, Msg> {
         column![
-            text(tr("Senha (não fica guardada)")).size(12).color(COR_TEXTO_MUTED()),
+            text(tr("Senha")).size(12).color(COR_TEXTO_MUTED()),
             text_input("", self.senha.as_str()).secure(true).on_input(|s| Msg::Form(Campo::Senha(s))).padding([6, 9]).size(13),
         ]
         .spacing(4)
@@ -166,6 +178,7 @@ impl App {
             Campo::Senha(s) => form.senha = s,
             Campo::Caminho(s) => form.c.caminho = s,
             Campo::Tls(v) => form.c.tls = v,
+            Campo::Lembrar(v) => form.c.lembrar_senha = v,
             Campo::EscolherArquivo => {
                 // Cancelar a escolha mantém o arquivo que já estava no campo.
                 let atual = form.c.caminho.clone();
@@ -201,6 +214,15 @@ impl App {
                     }
                 };
                 let senha = (!form.senha.is_empty() || c.tipo == Tipo::Sqlite).then(|| form.senha.clone());
+                // Tirou o "lembrar", ou mudou o servidor/usuário: a senha antiga sai do cofre.
+                if let Some(antiga) = form.editando.and_then(|id| self.itens.iter().find(|i| i.id == id)).map(|i| i.conexao.clone()) {
+                    if !c.lembrar_senha || (&antiga.host, antiga.porta, &antiga.usuario, &antiga.banco, &antiga.caminho) != (&c.host, c.porta, &c.usuario, &c.banco, &c.caminho) {
+                        featherdb_core::cofre::apagar(&antiga);
+                    }
+                }
+                if !c.lembrar_senha {
+                    featherdb_core::cofre::apagar(&c);
+                }
                 let id = match form.editando {
                     Some(id) => {
                         if let Some(i) = self.item(id) {

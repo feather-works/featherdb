@@ -1,5 +1,6 @@
 //! O motor do FeatherDB: as conexões guardadas, os drivers (Postgres, MySQL, SQLite e ODBC),
 //! as consultas e o catálogo (tabelas e colunas). Nada de interface aqui.
+pub mod cofre;
 mod mysql_banco;
 mod odbc;
 mod postgres_banco;
@@ -68,6 +69,8 @@ pub struct Conexao {
     pub caminho: String,
     /// Postgres e MySQL: conexão criptografada (TLS).
     pub tls: bool,
+    /// Guardar a senha no cofre do sistema ([`cofre`]) e não pedir de novo.
+    pub lembrar_senha: bool,
 }
 
 impl Conexao {
@@ -81,6 +84,7 @@ impl Conexao {
             usuario: String::new(),
             caminho: String::new(),
             tls: false,
+            lembrar_senha: true,
         }
     }
 
@@ -318,7 +322,12 @@ pub fn ler_conexoes(arquivo: &Path) -> Vec<Conexao> {
         .lines()
         .filter_map(|l| {
             let c: Vec<&str> = l.split('\t').collect();
-            let [tipo, nome, host, porta, banco, usuario, caminho, tls] = c[..] else { return None };
+            // O 9º campo (lembrar a senha) veio depois: linha antiga com 8 campos continua valendo.
+            let (tipo, nome, host, porta, banco, usuario, caminho, tls, lembrar) = match c[..] {
+                [a, b, h, p, d, u, k, t] => (a, b, h, p, d, u, k, t, "1"),
+                [a, b, h, p, d, u, k, t, l] => (a, b, h, p, d, u, k, t, l),
+                _ => return None,
+            };
             Some(Conexao {
                 nome: nome.into(),
                 tipo: Tipo::de_codigo(tipo)?,
@@ -328,6 +337,7 @@ pub fn ler_conexoes(arquivo: &Path) -> Vec<Conexao> {
                 usuario: usuario.into(),
                 caminho: caminho.into(),
                 tls: tls == "1",
+                lembrar_senha: lembrar == "1",
             })
         })
         .collect()
@@ -340,7 +350,7 @@ pub fn gravar_conexoes(arquivo: &Path, conexoes: &[Conexao]) -> Result<(), Strin
         .iter()
         .map(|c| {
             format!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                 c.tipo.codigo(),
                 limpo(&c.nome),
                 limpo(&c.host),
@@ -348,7 +358,8 @@ pub fn gravar_conexoes(arquivo: &Path, conexoes: &[Conexao]) -> Result<(), Strin
                 limpo(&c.banco),
                 limpo(&c.usuario),
                 limpo(&c.caminho),
-                u8::from(c.tls)
+                u8::from(c.tls),
+                u8::from(c.lembrar_senha)
             )
         })
         .collect();
@@ -396,6 +407,11 @@ mod testes {
         std::fs::remove_file(&p).unwrap();
         c.nome = "Produção nova".into();
         assert_eq!(lidas, vec![c, d]);
+        // Arquivo antigo, de antes do campo "lembrar a senha".
+        std::fs::write(&p, "postgres\tLoto\t10.0.0.1\t5432\tloto\tpostgres\t\t0\n").unwrap();
+        let antiga = ler_conexoes(&p);
+        std::fs::remove_file(&p).unwrap();
+        assert_eq!((antiga.len(), antiga[0].lembrar_senha), (1, true));
     }
 
     #[test]

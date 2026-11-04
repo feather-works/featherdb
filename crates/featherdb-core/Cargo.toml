@@ -16,3 +16,5 @@ mysql = { version = "26", default-features = false, features = ["minimal-rust", 
 rusqlite = { version = "0.37", features = ["bundled"] }
 # ODBC é carregado na hora de conectar: o app abre mesmo sem o unixODBC instalado.
 libloading = "0.8"
+# Senhas lembradas: no cofre do sistema (Secret Service no Linux, Credenciais no Windows), nunca em arquivo.
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "windows-native", "apple-native"] }
