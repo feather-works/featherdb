@@ -10,7 +10,8 @@ Think DBeaver, without the weight: it opens instantly and uses about 100 MB of R
 
 ## What it does
 
-- **Connections:** PostgreSQL, MySQL/MariaDB and SQLite built in (TLS for cloud databases).
+- **Connections:** PostgreSQL, MySQL/MariaDB and SQLite built in (TLS for cloud databases). Paste a
+  `postgresql://` or `mysql://` address and the form fills itself in.
   Any other database through **ODBC**: SAP Datasphere/HANA, TIBCO TDV, SQL Server, Oracle, Snowflake…
   It plays the role of DBeaver's JDBC drivers, without Java. The ODBC manager is loaded only when you
   connect, so FeatherDB opens even if unixODBC is not installed.

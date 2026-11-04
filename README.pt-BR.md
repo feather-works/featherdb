@@ -10,7 +10,8 @@ A ideia do DBeaver, sem o peso: abre na hora e usa cerca de 100 MB de memória.
 
 ## O que faz
 
-- **Conexões:** PostgreSQL, MySQL/MariaDB e SQLite prontos (TLS para bancos na nuvem). Qualquer outro
+- **Conexões:** PostgreSQL, MySQL/MariaDB e SQLite prontos (TLS para bancos na nuvem). Cole um endereço
+  `postgresql://` ou `mysql://` e o formulário se preenche sozinho. Qualquer outro
   banco por **ODBC**: SAP Datasphere/HANA, TIBCO TDV, SQL Server, Oracle, Snowflake… É o papel dos
   drivers JDBC do DBeaver, sem Java. O gerenciador ODBC só é carregado ao conectar: o FeatherDB abre
   mesmo sem o unixODBC instalado.

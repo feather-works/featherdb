@@ -19,5 +19,8 @@ outro projeto) e `../feather-ui-pelicano/GUIA-JANELAS.md` (ícones só Tabler, c
   conferem que todo `tr`/`trf` literal, a Ajuda e as Novidades têm tradução nas duas línguas.
 - Marca: a pena da suíte recolorida em `#0b7285` dentro do app (`main.rs::marca`); passar para
   `feather_ui::marca::Produto` quando a feather-ui ganhar o FeatherDB.
-- Sem servidor local para testar Postgres/MySQL nesta máquina: SQLite tem teste de ponta a ponta e o
-  ODBC é conferido contra o unixODBC (erro `IM002` de DSN inexistente).
+- Testes: SQLite de ponta a ponta; ODBC contra o unixODBC (erro `IM002` de DSN inexistente); Postgres de
+  verdade com `FEATHERDB_TESTE_PG=postgresql://… cargo test -p featherdb-core -- --ignored` (passou em
+  04/11/2026 no Postgres da rede do usuário). A senha só por variável de ambiente, nunca em arquivo.
+- Visual: editor e resultado em painéis com borda; a faixa do editor mostra a conexão ativa e o Executar.
+  Conferir por captura (`pelicano::capture` num teste temporário) antes de entregar.

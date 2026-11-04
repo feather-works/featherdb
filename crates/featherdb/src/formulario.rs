@@ -82,7 +82,14 @@ impl Formulario {
         .spacing(12);
         match self.c.tipo {
             Tipo::Postgres | Tipo::MySql => {
-                corpo = corpo.push(row![campo(tr("Servidor (host)"), &self.c.host, Campo::Host), column![text(tr("Porta")).size(12).color(COR_TEXTO_MUTED()), text_input("", self.porta.as_str()).on_input(|s| Msg::Form(Campo::Porta(s))).padding([6, 9]).size(13)].spacing(4).width(100)].spacing(12));
+                corpo = corpo.push(row![
+                    column![
+                        text(tr("Servidor (host)")).size(12).color(COR_TEXTO_MUTED()),
+                        text_input(tr("ou cole o endereço postgresql://…"), self.c.host.as_str()).on_input(|s| Msg::Form(Campo::Host(s))).padding([6, 9]).size(13),
+                    ]
+                    .spacing(4)
+                    .width(Length::FILL),
+                    column![text(tr("Porta")).size(12).color(COR_TEXTO_MUTED()), text_input("", self.porta.as_str()).on_input(|s| Msg::Form(Campo::Porta(s))).padding([6, 9]).size(13)].spacing(4).width(100)].spacing(12));
                 corpo = corpo.push(campo(tr("Banco de dados"), &self.c.banco, Campo::Banco));
                 corpo = corpo.push(row![campo(tr("Usuário"), &self.c.usuario, Campo::Usuario), self.campo_senha()].spacing(12));
                 corpo = corpo.push(checkbox(tr("Conexão criptografada (TLS), exigida pela maioria dos bancos na nuvem"), self.c.tls).on_toggle(|v| Msg::Form(Campo::Tls(v))).size(13));
@@ -142,7 +149,17 @@ impl App {
                 }
             }
             Campo::Nome(s) => form.c.nome = s,
-            Campo::Host(s) => form.c.host = s,
+            Campo::Host(s) => match Conexao::de_url(&s) {
+                // Colou o endereço inteiro: preenche tudo de uma vez (o nome dado fica).
+                Some((c, senha)) => {
+                    form.c = Conexao { nome: std::mem::take(&mut form.c.nome), ..c };
+                    form.porta = form.c.porta.to_string();
+                    if !senha.is_empty() {
+                        form.senha = senha;
+                    }
+                }
+                None => form.c.host = s,
+            },
             Campo::Porta(s) => form.porta = s,
             Campo::Banco(s) => form.c.banco = s,
             Campo::Usuario(s) => form.c.usuario = s,
@@ -226,6 +243,15 @@ mod testes {
         let _ = app.update_form(Campo::Tipo(Tipo::MySql));
         let f = app.form.as_ref().unwrap();
         assert_eq!((f.c.host.as_str(), f.c.usuario.as_str(), f.porta.as_str()), ("db.empresa.com", "ana", "3306"));
+    }
+
+    #[test]
+    fn colar_o_endereco_preenche_tudo() {
+        let mut app = App::novo(crate::config::Config::default());
+        app.form = Some(Formulario::novo(None, Conexao { nome: "Lotofácil".into(), ..Conexao::nova(Tipo::MySql) }));
+        let _ = app.update_form(Campo::Host("postgresql://postgres:x@10.0.0.5:5433/loto".into()));
+        let f = app.form.as_ref().unwrap();
+        assert_eq!((f.c.tipo, f.c.nome.as_str(), f.c.host.as_str(), f.porta.as_str(), f.c.banco.as_str(), f.senha.as_str()), (Tipo::Postgres, "Lotofácil", "10.0.0.5", "5433", "loto", "x"));
     }
 
     #[test]

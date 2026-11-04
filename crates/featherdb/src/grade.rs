@@ -2,13 +2,14 @@
 //! no editor e a cópia em texto separado (TSV para colar na planilha, CSV para exportar).
 use feather_ui::tema::*;
 use featherdb_core::Resultado;
-use pelicano::{column, container, row, text, Color, Element, Font, Length, Style};
+use pelicano::{column, container, row, text, Align, Color, Element, Font, Length, Space, Style};
 
 use crate::Msg;
 
 const POR_PAGINA: usize = 200;
 const LARGURA_MIN: f32 = 60.0;
 const LARGURA_MAX: f32 = 320.0;
+const ALTURA_LINHA: f32 = 30.0;
 
 /// O que cabe numa célula: uma linha, no máximo 200 caracteres. Um JSON de 1 MB numa coluna
 /// seria medido e desenhado inteiro a cada quadro; a cópia e o CSV continuam com o valor todo.
@@ -36,21 +37,36 @@ pub(crate) fn view(r: &Resultado, pagina: usize) -> Element<'_, Msg> {
     let inicio = (pagina * POR_PAGINA).min(r.linhas.len());
     let linhas = &r.linhas[inicio..(inicio + POR_PAGINA).min(r.linhas.len())];
     let larg = larguras(r, linhas);
-    let celula = |conteudo: Element<'static, Msg>, w: f32| container(conteudo).width(w).padding([4, 8]);
-    let mut cab = row![celula(text("#").size(12).color(COR_TEXTO_MUTED()).into(), 52.0)];
-    for (c, w) in r.colunas.iter().zip(&larg) {
-        cab = cab.push(celula(text(c.clone()).size(12.5).font(Font::SEMIBOLD).no_wrap().ellipsis().into(), *w));
+    // Coluna só de números (os não nulos da página): alinhada à direita, como numa planilha.
+    let numerica: Vec<bool> = (0..r.colunas.len())
+        .map(|i| {
+            let mut vals = linhas.iter().filter_map(|l| l.get(i).and_then(|v| v.as_deref())).peekable();
+            vals.peek().is_some() && vals.all(|v| v.trim().parse::<f64>().is_ok())
+        })
+        .collect();
+    let largura_total = 52.0 + larg.iter().sum::<f32>() + larg.len() as f32;
+    let celula = |conteudo: Element<'static, Msg>, w: f32, direita: bool| {
+        container(conteudo).width(w).height(ALTURA_LINHA).padding([0, 10]).align_y(Align::Center).align_x(if direita { Align::End } else { Align::Start })
+    };
+    // Linha fina entre as colunas.
+    let separador = || container(Space::new(1, ALTURA_LINHA)).style(|_| Style::default().background(COR_BORDA_SUAVE()));
+    let mut cab = row![celula(text("#").size(11.5).color(COR_TEXTO_MUTED()).into(), 52.0, true)];
+    for ((c, w), num) in r.colunas.iter().zip(&larg).zip(&numerica) {
+        cab = cab.push(separador());
+        cab = cab.push(celula(text(c.clone()).size(12.5).font(Font::SEMIBOLD).no_wrap().ellipsis().into(), *w, *num));
     }
     let cab = container(cab).style(|_| Style::default().background(COR_PAINEL_FAIXA()));
-    let mut corpo = column![cab];
+    let linha_h = || container(Space::new(largura_total, 1)).style(|_| Style::default().background(COR_BORDA()));
+    let mut corpo = column![cab, linha_h()];
     for (n, l) in linhas.iter().enumerate() {
-        let mut linha = row![celula(text((inicio + n + 1).to_string()).size(12).color(COR_TEXTO_MUTED()).into(), 52.0)];
-        for (v, w) in l.iter().zip(&larg) {
+        let mut linha = row![celula(text((inicio + n + 1).to_string()).size(11.5).color(COR_TEXTO_MUTED()).into(), 52.0, true)];
+        for ((v, w), num) in l.iter().zip(&larg).zip(&numerica) {
             let t: Element<'static, Msg> = match v {
                 Some(v) => text(resumo(v)).size(12.5).no_wrap().ellipsis().into(),
-                None => text("NULL").size(12).color(COR_TEXTO_MUTED()).into(),
+                None => text("NULL").size(11.5).font(Font::MONO).color(COR_TEXTO_MUTED()).into(),
             };
-            linha = linha.push(celula(t, *w));
+            linha = linha.push(separador());
+            linha = linha.push(celula(t, *w, *num));
         }
         let par = n % 2 == 1;
         corpo = corpo.push(container(linha).style(move |_| if par { Style::default().background(COR_PAINEL_FAIXA()) } else { Style::default() }));

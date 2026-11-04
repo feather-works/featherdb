@@ -46,12 +46,15 @@ fn montar() -> Catalogo {
                 "Primeiros passos",
                 "O FeatherDB conversa com bancos de dados: você escreve SQL e vê o resultado numa grade. Leve, sem conta e sem telemetria.",
                 vec![
+                    // A primeira linha vira o resumo do cartão na página inicial da Ajuda: curta, para caber.
                     topico("primeira-conexao", "Sua primeira conexão", vec![
+                        t("Conecte no seu banco em um minuto."),
                         t("Clique em Nova conexão (o + no alto), escolha o banco e preencha o servidor, o banco e o usuário."),
                         t("Testar confere sem salvar. Salvar e conectar guarda a conexão na lista à esquerda."),
                         t("A senha nunca vai para o disco: o FeatherDB pede uma vez e lembra só até você fechar o programa."),
                     ]),
                     topico("primeira-consulta", "Sua primeira consulta", vec![
+                        t("Escreva SQL e rode com Ctrl+Enter."),
                         t("Escreva o SQL no editor e aperte Ctrl+Enter: roda o comando onde está o cursor (entre os ponto e vírgula)."),
                         t("Com um trecho selecionado, roda só o trecho. Para rodar o script inteiro, Alt+X ou F5."),
                         a("Rodar o comando do cursor", "Ctrl+Enter"),
@@ -62,6 +65,7 @@ fn montar() -> Catalogo {
             secao("bancos", "Bancos de dados", "PostgreSQL, MySQL e SQLite vêm prontos. Os outros entram por ODBC.", vec![
                 topico("postgres-mysql", "PostgreSQL, MySQL e MariaDB", vec![
                     t("Preencha servidor, porta, banco e usuário. Bancos na nuvem quase sempre exigem a opção de conexão criptografada (TLS)."),
+                    t("Tem o endereço inteiro (postgresql://usuario:senha@servidor:5432/banco)? Cole no campo Servidor: os outros campos se preenchem sozinhos."),
                 ]),
                 topico("sqlite", "SQLite", vec![
                     t("Escolha o arquivo do banco. Se ele não existir, o FeatherDB cria um banco novo e vazio."),
@@ -125,5 +129,16 @@ mod testes {
         }
         let faltam: Vec<_> = textos.iter().filter(|t| !crate::idioma::sem_traducao(t).is_empty()).collect();
         assert!(faltam.is_empty(), "sem tradução: {faltam:#?}");
+    }
+
+    /// A página inicial da Ajuda mostra a primeira linha de cada tópico dos Primeiros passos num
+    /// cartão estreito; acima de ~42 caracteres o texto passa da borda do cartão.
+    #[test]
+    fn resumos_dos_cartoes_cabem() {
+        let c = super::montar();
+        for t in &c.secoes[0].topicos {
+            let Some(feather_ui::ajuda::Linha::Texto(x)) = t.linhas.first() else { panic!("{} sem texto primeiro", t.id) };
+            assert!(x.chars().count() <= 42, "{}: {x}", t.id);
+        }
     }
 }

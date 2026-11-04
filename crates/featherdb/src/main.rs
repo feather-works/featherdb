@@ -12,11 +12,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use feather_ui::cromo::{self, AcoesJanela};
-use feather_ui::icones::icone;
+
 use feather_ui::tema::*;
 use featherdb_core::{Banco, Conexao, Resultado, Tabela, Tipo, LIMITE_LINHAS};
 use pelicano::{
-    button, column, container, horizontal_space, mouse_area, row, svg, text, text_editor, tooltip, Align, Content,
+    button, column, container, horizontal_space, mouse_area, row, svg, text, text_editor, tooltip, Align, Border, Content,
     Element, Event, Font, Key, Length, Modifiers, NamedKey, ResizeDirection, Settings, Space, Style, Svg, SvgView, Task, Theme,
     TooltipPosition, WindowCmd,
 };
@@ -133,7 +133,6 @@ fn icone_tabler(caminho: &str, tamanho: f32) -> SvgView {
     let s = format!("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#000\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"{caminho}\"/></svg>");
     svg(Svg::from_bytes(s.as_bytes()).expect("ícone válido")).color(COR_TEXTO()).width(tamanho).height(tamanho)
 }
-const BANCO: &str = "M12 6m-8 0a8 3 0 1 0 16 0a8 3 0 1 0 -16 0M4 6v6a8 3 0 0 0 16 0v-6M4 12v6a8 3 0 0 0 16 0v-6";
 const VISAO: &str = "M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0M21 12c-2.4 4 -5.4 6 -9 6c-3.6 0 -6.6 -2 -9 -6c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6";
 const SETA_DIREITA: &str = "M9 6l6 6l-6 6";
 const SETA_BAIXO: &str = "M6 9l6 6l6 -6";
@@ -512,7 +511,7 @@ impl pelicano::App for App {
     }
 
     fn view(&self) -> Element<'_, Msg> {
-        let corpo = row![self.lateral(), pelicano::vertical_rule(1.0), self.area_consulta()].height(Length::FILL);
+        let corpo = row![self.lateral(), divisoria_vertical(), self.area_consulta()].height(Length::FILL);
         let tudo = column![self.barra(), corpo, self.rodape()];
         let janela = cromo::moldura_redimensionavel_com(tudo.into(), self.maximizada, Msg::Puxar);
         if let Some(f) = &self.form {
@@ -558,43 +557,39 @@ fn atalho(key: &Key, m: Modifiers) -> Option<Msg> {
 
 impl App {
     fn barra(&self) -> Element<'_, Msg> {
-        let pode = !self.executando;
         let barra = row![
             marca(18.0),
-            text("FeatherDB").size(14),
-            Space::new(12, 0),
-            acao("plus", tr("Nova conexão"), Some(Msg::Nova)),
-            Space::new(6, 0),
-            acao("player-play", tr("Executar o comando do cursor (Ctrl+Enter)"), pode.then_some(Msg::Executar)),
-            cromo::acao_icone(icone_tabler(EXECUTAR_TUDO, 18.0), tr("Executar o script inteiro (Alt+X)"), pode.then_some(Msg::ExecutarTudo)),
-            Space::new(10, 0),
-            text(self.ativa.and_then(|id| self.itens.iter().find(|i| i.id == id)).map(|i| i.conexao.rotulo()).unwrap_or_default()).size(13).color(COR_TEXTO_MUTED()),
+            text("FeatherDB").size(14).font(Font::SEMIBOLD),
             horizontal_space(),
             acao("info-circle", tr("Ajuda (F1)"), Some(Msg::Aux(Aux::Abrir(Janela::Ajuda)))),
             acao("settings", tr("Configurações"), Some(Msg::Aux(Aux::Abrir(Janela::Configuracoes)))),
             Space::new(8, 0),
         ]
-        .spacing(4)
+        .spacing(8)
         .align(Align::Center);
-        let barra = container(barra).padding([0, 12]).align_y(Align::Center).width(Length::FILL).height(cromo::BARRA_ALTURA).style(estilo_container_topo);
+        let barra = container(barra).padding([0, 14]).align_y(Align::Center).width(Length::FILL).height(cromo::BARRA_ALTURA).style(estilo_container_topo);
         cromo::barra_integrada(
             barra.into(),
             AcoesJanela { arrastar: Msg::Janela(WindowCmd::Drag), minimizar: Msg::Janela(WindowCmd::Minimize), maximizar: Msg::Janela(WindowCmd::ToggleMaximize), fechar: Msg::Fechar },
         )
     }
 
+    fn item_ativo(&self) -> Option<&Item> {
+        self.ativa.and_then(|id| self.itens.iter().find(|i| i.id == id))
+    }
+
     /// A árvore: conexões › tabelas › colunas.
     fn lateral(&self) -> Element<'_, Msg> {
-        let mut lista = column![].spacing(1);
+        let mut lista = column![].spacing(2);
         if self.itens.is_empty() {
             lista = lista.push(
                 column![
-                    text(tr("Nenhuma conexão ainda.")).size(13),
-                    text(tr("Crie uma para PostgreSQL, MySQL, SQLite ou qualquer banco com driver ODBC (Datasphere, TDV, SQL Server…).")).size(12).color(COR_TEXTO_MUTED()),
+                    text(tr("Nenhuma conexão ainda.")).size(13).font(Font::SEMIBOLD),
+                    text(tr("Crie uma para PostgreSQL, MySQL, SQLite ou qualquer banco com driver ODBC (Datasphere, TDV, SQL Server…).")).size(12).color(COR_TEXTO_MUTED()).line_height(1.45),
                     feather_ui::dialogo::botao_primario(tr("Nova conexão"), Some(Msg::Nova)),
                 ]
                 .spacing(10)
-                .padding(12),
+                .padding([8, 10]),
             );
         }
         for item in &self.itens {
@@ -611,24 +606,29 @@ impl App {
                 let aberta = item.tabelas_abertas.contains(&chave);
                 let nome = if t.esquema.is_empty() || item.conexao.tipo == Tipo::MySql { t.nome.clone() } else { format!("{}.{}", t.esquema, t.nome) };
                 let linha = row![
-                    Space::new(18, 0),
-                    icone_tabler(if aberta { SETA_BAIXO } else { SETA_DIREITA }, 13.0),
-                    if t.visao { icone_tabler(VISAO, 15.0) } else { icone("table", 15.0) },
+                    Space::new(14, 0),
+                    icone_tabler(if aberta { SETA_BAIXO } else { SETA_DIREITA }, 12.0).color(COR_TEXTO_MUTED()),
+                    if t.visao { icone_tabler(VISAO, 15.0).color(COR_TEXTO_MUTED()) } else { feather_ui::icones::icone_traco("table", 15.0).color(COR_TEXTO_MUTED()) },
                     text(nome).size(12.5).no_wrap().ellipsis(),
                 ]
                 .width(Length::FILL)
-                .spacing(5)
+                .spacing(6)
                 .align(Align::Center);
-                let botao = button(linha).padding([3, 6]).width(Length::FILL).style(estilo_botao_pequeno(false)).on_press(Msg::ExpandirTabela(item.id, t.clone()));
+                let botao = button(linha).padding([4, 6]).width(Length::FILL).style(estilo_botao_pequeno(false)).on_press(Msg::ExpandirTabela(item.id, t.clone()));
                 let botao = mouse_area(botao).on_double_click(Msg::AbrirTabela(item.id, t.clone()));
                 lista = lista.push(tooltip(botao, tr("Clique duplo mostra os dados"), TooltipPosition::Right).padding([4, 8]).style(estilo_dica));
                 if aberta {
                     for (nome, tipo) in item.colunas.get(&chave).map(Vec::as_slice).unwrap_or_default() {
                         lista = lista.push(
-                            row![Space::new(56, 0), icone("columns", 13.0), text(nome.as_str()).size(12), text(tipo.as_str()).size(11).color(COR_TEXTO_MUTED()).no_wrap().ellipsis()]
-                                .spacing(6)
-                                .align(Align::Center)
-                                .padding([2, 0]),
+                            row![
+                                Space::new(48, 0),
+                                text(nome.as_str()).size(12).no_wrap().ellipsis(),
+                                horizontal_space(),
+                                text(tipo.to_lowercase()).size(11).font(Font::MONO).color(COR_TEXTO_MUTED()).no_wrap(),
+                            ]
+                            .spacing(6)
+                            .align(Align::Center)
+                            .padding([3, 10]),
                         );
                     }
                 }
@@ -639,25 +639,25 @@ impl App {
             }
         }
         // As ações valem para a conexão ativa (a destacada na lista).
-        let mut topo = row![text(tr("Conexões")).size(12).color(COR_TEXTO_MUTED()), horizontal_space()].align(Align::Center);
-        if let Some(item) = self.ativa.and_then(|id| self.itens.iter().find(|i| i.id == id)) {
+        let mut topo = row![text(tr("Conexões")).size(12).font(Font::SEMIBOLD).color(COR_TEXTO_MUTED()), horizontal_space()].spacing(0).align(Align::Center);
+        if let Some(item) = self.item_ativo() {
             if item.banco.is_some() {
-                topo = topo.push(acao("refresh", tr("Atualizar tabelas"), Some(Msg::Atualizar(item.id))));
-                topo = topo.push(cromo::acao_icone(icone_tabler(DESCONECTAR, 17.0), tr("Desconectar"), Some(Msg::Desconectar(item.id))));
+                topo = topo.push(acao_pequena(feather_ui::icones::icone_traco("refresh", 15.0), tr("Atualizar tabelas"), Some(Msg::Atualizar(item.id))));
+                topo = topo.push(acao_pequena(icone_tabler(DESCONECTAR, 15.0), tr("Desconectar"), Some(Msg::Desconectar(item.id))));
             }
-            topo = topo.push(acao("pencil", tr("Editar conexão"), Some(Msg::Editar(item.id))));
-            topo = topo.push(acao("trash", tr("Excluir conexão"), Some(Msg::Excluir(item.id))));
+            topo = topo.push(acao_pequena(feather_ui::icones::icone_traco("pencil", 15.0), tr("Editar conexão"), Some(Msg::Editar(item.id))));
+            topo = topo.push(acao_pequena(feather_ui::icones::icone_traco("trash", 15.0), tr("Excluir conexão"), Some(Msg::Excluir(item.id))));
         }
         let topo = topo
-            .push(acao("plus", tr("Nova conexão"), Some(Msg::Nova)))
-            .padding(pelicano::Padding { top: 4.0, right: 6.0, bottom: 4.0, left: 12.0 });
+            .push(acao_pequena(feather_ui::icones::icone_traco("plus", 16.0), tr("Nova conexão"), Some(Msg::Nova)))
+            .padding(pelicano::Padding { top: 10.0, right: 8.0, bottom: 6.0, left: 14.0 });
         // O filtro só aparece quando há tabelas para filtrar.
         let filtro: Element<'_, Msg> = if self.itens.iter().any(|i| !i.tabelas.is_empty()) {
-            container(pelicano::text_input(tr("Filtrar tabelas"), self.filtro.as_str()).on_input(Msg::Filtro).padding([5, 9]).size(12.5)).padding([0, 8]).into()
+            container(pelicano::text_input(tr("Filtrar tabelas"), self.filtro.as_str()).on_input(Msg::Filtro).padding([6, 10]).size(12.5)).padding(pelicano::Padding { top: 0.0, right: 10.0, bottom: 8.0, left: 10.0 }).into()
         } else {
             Space::new(0, 0).into()
         };
-        container(column![topo, filtro, rolagem(container(lista).padding(pelicano::Padding { top: 0.0, right: 6.0, bottom: 8.0, left: 6.0 }))])
+        container(column![topo, filtro, rolagem(container(lista).padding(pelicano::Padding { top: 0.0, right: 8.0, bottom: 8.0, left: 8.0 }))])
             .width(LARGURA_LATERAL)
             .height(Length::FILL)
             .style(|_| Style::default().background(COR_PAINEL_FAIXA()))
@@ -666,27 +666,28 @@ impl App {
 
     fn linha_conexao<'a>(&'a self, item: &'a Item) -> Element<'a, Msg> {
         let ativa = self.ativa == Some(item.id);
-        let estado = if item.conectando {
-            tr("conectando…")
+        let (estado, ligada) = if item.conectando {
+            (tr("conectando…"), false)
         } else if item.banco.is_some() {
-            ""
+            (tr("conectada"), true)
         } else {
-            tr("desconectada")
+            (tr("desconectada"), false)
         };
-        let seta = if item.banco.is_some() && item.expandido { SETA_BAIXO } else { SETA_DIREITA };
+        let ponto_cor = if ligada { COR_AZUL_ACENTO() } else { COR_BORDA() };
+        let ponto = container(Space::new(7, 7)).style(move |_| Style::default().background(ponto_cor).border(Border::rounded(3.5)));
         let linha = row![
-            icone_tabler(seta, 13.0),
-            icone_tabler(BANCO, 16.0),
+            selo(item.conexao.tipo),
             column![
-                text(item.conexao.rotulo()).size(13).no_wrap().ellipsis(),
-                text(if estado.is_empty() { item.conexao.tipo.nome() } else { estado }).size(11).color(COR_TEXTO_MUTED()),
+                text(item.conexao.rotulo()).size(13).font(if ativa { Font::SEMIBOLD } else { Font::DEFAULT }).no_wrap().ellipsis(),
+                row![ponto, text(estado).size(11).color(COR_TEXTO_MUTED())].spacing(5).align(Align::Center),
             ]
+            .spacing(2)
             .width(Length::FILL),
         ]
         .width(Length::FILL)
-        .spacing(6)
+        .spacing(9)
         .align(Align::Center);
-        button(linha).padding([5, 6]).width(Length::FILL).style(estilo_botao_pequeno(ativa)).on_press(Msg::Expandir(item.id)).into()
+        button(linha).padding([6, 8]).width(Length::FILL).style(estilo_botao_pequeno(ativa)).on_press(Msg::Expandir(item.id)).into()
     }
 
     fn area_consulta(&self) -> Element<'_, Msg> {
@@ -701,51 +702,142 @@ impl App {
             .on_key(atalho)
             .on_change(Msg::EditorMudou)
             .colors(move |linha| grade::cores_sql(linha, cor_chave, cor_comentario));
-        let editor = container(editor).height(Length::Fill(2)).width(Length::FILL).style(|_| Style::default().background(COR_PAINEL()));
-        column![editor, pelicano::horizontal_rule(1.0), container(self.view_resultado()).height(Length::Fill(3)).width(Length::FILL)].width(Length::FILL).into()
+        let editor = painel(column![self.cabecalho_editor(), divisoria(), container(editor).height(Length::FILL).width(Length::FILL)]).height(Length::Fill(2));
+        let resultado = painel(self.view_resultado()).height(Length::Fill(3));
+        container(column![editor, resultado].spacing(8).width(Length::FILL))
+            .padding(8)
+            .width(Length::FILL)
+            .height(Length::FILL)
+            .style(|_| Style::default().background(COR_FUNDO_JANELA()))
+            .into()
+    }
+
+    /// A faixa do editor: em que banco o SQL vai rodar e os botões de executar.
+    fn cabecalho_editor(&self) -> Element<'_, Msg> {
+        let pode = !self.executando;
+        let onde: Element<'_, Msg> = match self.item_ativo() {
+            Some(i) => row![selo(i.conexao.tipo), text(i.conexao.rotulo()).size(13).font(Font::SEMIBOLD)].spacing(8).align(Align::Center).into(),
+            None => text(tr("Nenhuma conexão escolhida")).size(13).color(COR_TEXTO_MUTED()).into(),
+        };
+        let executar = button(
+            row![feather_ui::icones::icone_traco("player-play", 15.0).color(COR_ACENTO_TEXTO(COR_AZUL_ACENTO())), text(tr("Executar")).size(13).font(Font::SEMIBOLD)]
+                .spacing(6)
+                .align(Align::Center),
+        )
+        .padding([6, 14])
+        .style(estilo_botao_primario)
+        .on_press_maybe(pode.then_some(Msg::Executar));
+        let script = button(row![icone_tabler(EXECUTAR_TUDO, 15.0), text(tr("Script")).size(13)].spacing(6).align(Align::Center))
+            .padding([6, 12])
+            .style(estilo_botao_secundario)
+            .on_press_maybe(pode.then_some(Msg::ExecutarTudo));
+        row![
+            onde,
+            horizontal_space(),
+            tooltip(script, tr("Executar o script inteiro (Alt+X)"), TooltipPosition::Bottom).padding([4, 8]).style(estilo_dica),
+            tooltip(executar, tr("Executar o comando do cursor (Ctrl+Enter)"), TooltipPosition::Bottom).padding([4, 8]).style(estilo_dica),
+        ]
+        .spacing(8)
+        .align(Align::Center)
+        .padding([8, 12])
+        .into()
     }
 
     fn view_resultado(&self) -> Element<'_, Msg> {
         if self.executando {
-            return centro(text(tr("Rodando…")).size(13).color(COR_TEXTO_MUTED()));
+            return vazio("clock", tr("Rodando…"), "");
         }
         if let Some(e) = &self.erro {
-            let caixa = container(text(e.as_str()).size(13).font(Font::MONO).color(COR_ERRO())).padding(14);
-            return rolagem(caixa).into();
+            let barra = container(Space::new(3, Length::FILL)).style(|_| Style::default().background(COR_ERRO()));
+            let texto = column![text(tr("Erro")).size(13).font(Font::SEMIBOLD).color(COR_ERRO()), text(e.as_str()).size(12.5).font(Font::MONO)].spacing(6);
+            return rolagem(row![barra, texto].spacing(12).padding(16)).into();
         }
         let Some(r) = &self.resultado else {
-            return centro(text(tr("O resultado aparece aqui.")).size(13).color(COR_TEXTO_MUTED()));
+            return vazio("table", tr("Nenhum resultado ainda"), tr("Escreva uma consulta e aperte Ctrl+Enter."));
         };
         if r.colunas.is_empty() {
             let n = r.afetadas.unwrap_or(0);
-            return centro(text(trf("Pronto. {} linha(s) afetada(s).", &[&n])).size(13));
+            return vazio("check", tr("Pronto"), &trf("{} linha(s) afetada(s).", &[&n]));
         }
         let paginas = grade::paginas(r.linhas.len());
-        let barra = row![
-            text(if r.cortado { trf("Primeiras {} linhas", &[&r.linhas.len()]) } else { trf("{} linhas", &[&r.linhas.len()]) }).size(12).color(COR_TEXTO_MUTED()),
-            horizontal_space(),
-            acao("arrow-left", tr("Página anterior"), (self.pagina > 0).then_some(Msg::Pagina(-1))),
-            text(trf("{} de {}", &[&(self.pagina + 1), &paginas])).size(12),
-            acao("arrow-right", tr("Próxima página"), (self.pagina + 1 < paginas).then_some(Msg::Pagina(1))),
-            Space::new(10, 0),
-            acao("copy", tr("Copiar tudo (cola na planilha)"), Some(Msg::Copiar)),
-            acao("file-export", tr("Exportar CSV"), Some(Msg::ExportarCsv)),
-        ]
-        .spacing(4)
-        .align(Align::Center)
-        .padding([2, 10]);
-        column![barra, grade::view(r, self.pagina)].into()
+        let contagem = if r.cortado { trf("Primeiras {} linhas", &[&r.linhas.len()]) } else { trf("{} linhas", &[&r.linhas.len()]) };
+        let tempo = self.tempo.map_or(String::new(), |t| trf("{} ms", &[&t.as_millis()]));
+        let mut barra = row![text(tr("Resultado")).size(13).font(Font::SEMIBOLD), chip(contagem), chip(tempo), horizontal_space()].spacing(8).align(Align::Center);
+        if paginas > 1 {
+            barra = barra.push(acao_pequena(feather_ui::icones::icone_traco("arrow-left", 15.0), tr("Página anterior"), (self.pagina > 0).then_some(Msg::Pagina(-1))));
+            barra = barra.push(text(trf("{} de {}", &[&(self.pagina + 1), &paginas])).size(12).color(COR_TEXTO_MUTED()));
+            barra = barra.push(acao_pequena(feather_ui::icones::icone_traco("arrow-right", 15.0), tr("Próxima página"), (self.pagina + 1 < paginas).then_some(Msg::Pagina(1))));
+            barra = barra.push(Space::new(6, 0));
+        }
+        let barra = barra
+            .push(acao_pequena(feather_ui::icones::icone_traco("copy", 15.0), tr("Copiar tudo (cola na planilha)"), Some(Msg::Copiar)))
+            .push(acao_pequena(feather_ui::icones::icone_traco("file-export", 15.0), tr("Exportar CSV"), Some(Msg::ExportarCsv)))
+            .padding([6, 12]);
+        column![barra, divisoria(), grade::view(r, self.pagina)].into()
     }
 
     fn rodape(&self) -> Element<'_, Msg> {
-        let tempo = self.tempo.map_or(String::new(), |t| trf("{} ms", &[&t.as_millis()]));
-        let linha = row![text(self.aviso.as_str()).size(12), horizontal_space(), text(tempo).size(12).color(COR_TEXTO_MUTED())].align(Align::Center).padding([0, 12]);
+        let estado = match self.item_ativo() {
+            Some(i) if i.banco.is_some() => trf("Conectado a {} · {}", &[&i.conexao.rotulo(), &i.conexao.tipo.nome()]),
+            Some(i) if i.conectando => trf("Conectando a {}…", &[&i.conexao.rotulo()]),
+            _ => tr("Sem conexão").to_owned(),
+        };
+        let linha = row![text(estado).size(12).color(COR_TEXTO_MUTED()), Space::new(16, 0), text(self.aviso.as_str()).size(12)].align(Align::Center).padding([0, 14]);
         container(linha).height(26).align_y(Align::Center).width(Length::FILL).style(estilo_rodape).into()
     }
 }
 
-fn centro<'a>(e: impl Into<Element<'a, Msg>>) -> Element<'a, Msg> {
-    container(e).width(Length::FILL).height(Length::FILL).align_x(Align::Center).align_y(Align::Center).into()
+/// Painel com borda e cantos arredondados (o editor e o resultado).
+fn painel<'a>(conteudo: impl Into<Element<'a, Msg>>) -> pelicano::Container<'a, Msg> {
+    container(conteudo).width(Length::FILL).clip(true).style(|_| Style::default().background(COR_PAINEL()).border(Border::rounded(8.0).color(COR_BORDA_SUAVE(), 1.0)))
+}
+
+fn divisoria_vertical<'a>() -> Element<'a, Msg> {
+    container(Space::new(1, Length::FILL)).style(|_| Style::default().background(COR_BORDA_SUAVE())).into()
+}
+
+fn divisoria<'a>() -> Element<'a, Msg> {
+    container(Space::new(Length::FILL, 1)).style(|_| Style::default().background(COR_BORDA_SUAVE())).into()
+}
+
+/// Etiqueta pequena arredondada (contagem de linhas, tempo).
+fn chip<'a>(texto: String) -> Element<'a, Msg> {
+    if texto.is_empty() {
+        return Space::new(0, 0).into();
+    }
+    container(text(texto).size(11.5).color(COR_TEXTO_MUTED())).padding([2, 8]).style(|_| Style::default().background(COR_PAINEL_FAIXA()).border(Border::rounded(9.0).color(COR_BORDA_SUAVE(), 1.0))).into()
+}
+
+/// O selo do tipo de banco: duas letras num quadrado com a cor de destaque.
+fn selo<'a>(tipo: Tipo) -> Element<'a, Msg> {
+    let sigla = match tipo {
+        Tipo::Postgres => "PG",
+        Tipo::MySql => "MY",
+        Tipo::Sqlite => "SQ",
+        Tipo::Odbc => "OD",
+    };
+    container(text(sigla).size(10.5).font(Font::BOLD).color(COR_AZUL_ACENTO()))
+        .width(28)
+        .height(28)
+        .align_x(Align::Center)
+        .align_y(Align::Center)
+        .style(|_| Style::default().background(COR_AZUL_FUNDO()).border(Border::rounded(6.0)))
+        .into()
+}
+
+/// Botão de ícone menor, para as barras dos painéis.
+fn acao_pequena<'a>(icone: SvgView, dica: &str, msg: Option<Msg>) -> Element<'a, Msg> {
+    let b = button(icone).padding(6).style(estilo_botao_pequeno(false)).on_press_maybe(msg);
+    Element::from(tooltip(b, dica.to_owned(), TooltipPosition::Bottom).padding([4, 8]).style(estilo_dica)).access_label(dica.to_owned())
+}
+
+/// O meio do painel vazio: ícone, título e uma dica.
+fn vazio<'a>(icone: &str, titulo: &str, dica: &str) -> Element<'a, Msg> {
+    let mut c = column![feather_ui::icones::icone_traco(icone, 34.0).color(COR_TEXTO_MUTED()), text(titulo.to_owned()).size(15).font(Font::SEMIBOLD)].spacing(10).align(Align::Center);
+    if !dica.is_empty() {
+        c = c.push(text(dica.to_owned()).size(12.5).color(COR_TEXTO_MUTED()));
+    }
+    container(c).width(Length::FILL).height(Length::FILL).align_x(Align::Center).align_y(Align::Center).into()
 }
 
 fn main() -> Result<(), pelicano::Error> {
@@ -796,3 +888,4 @@ mod testes {
         assert_eq!(app.comando_atual(), "delete from b");
     }
 }
+

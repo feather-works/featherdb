@@ -84,6 +84,30 @@ impl Conexao {
         }
     }
 
+    /// Lê um endereço como `postgresql://usuario:senha@servidor:5432/banco?sslmode=require`
+    /// (também `postgres://` e `mysql://`). Devolve a conexão e a senha do endereço.
+    pub fn de_url(url: &str) -> Option<(Conexao, String)> {
+        let url = url.trim();
+        let (esquema, resto) = url.split_once("://")?;
+        let tipo = match esquema {
+            "postgresql" | "postgres" => Tipo::Postgres,
+            "mysql" | "mariadb" => Tipo::MySql,
+            _ => return None,
+        };
+        let (resto, consulta) = resto.split_once('?').unwrap_or((resto, ""));
+        let (endereco, banco) = resto.split_once('/').unwrap_or((resto, ""));
+        // A senha pode ter `@`: o servidor é o que vem depois do último.
+        let (credencial, servidor) = endereco.rsplit_once('@').unwrap_or(("", endereco));
+        let (usuario, senha) = credencial.split_once(':').unwrap_or((credencial, ""));
+        let (host, porta) = match servidor.rsplit_once(':') {
+            Some((h, p)) => (h, p.parse().ok()?),
+            None => (servidor, tipo.porta_padrao()),
+        };
+        let tls = consulta.split('&').any(|p| matches!(p, "sslmode=require" | "sslmode=verify-full" | "sslmode=verify-ca" | "ssl=true" | "ssl-mode=REQUIRED"));
+        let c = Conexao { host: decodificar(host), porta, banco: decodificar(banco), usuario: decodificar(usuario), tls, ..Conexao::nova(tipo) };
+        Some((c, decodificar(senha)))
+    }
+
     /// O que aparece na lista quando a pessoa não deu nome.
     pub fn rotulo(&self) -> String {
         if !self.nome.trim().is_empty() {
@@ -145,6 +169,25 @@ pub fn identificador(s: &str, tipo: Tipo) -> String {
         Tipo::MySql => format!("`{}`", s.replace('`', "``")),
         _ => format!("\"{}\"", s.replace('"', "\"\"")),
     }
+}
+
+/// Desfaz o `%40` e afins de um pedaço de endereço (senha com `@`, por exemplo).
+fn decodificar(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut saida = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                saida.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        saida.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&saida).into_owned()
 }
 
 /// Literal de texto SQL (aspas simples dobradas).
@@ -353,6 +396,39 @@ mod testes {
         std::fs::remove_file(&p).unwrap();
         c.nome = "Produção nova".into();
         assert_eq!(lidas, vec![c, d]);
+    }
+
+    #[test]
+    fn endereco_postgres_e_mysql() {
+        let (c, s) = Conexao::de_url("postgresql://postgres:se%40nha@192.168.0.223:5432/lotofacil_db").unwrap();
+        assert_eq!((c.tipo, c.host.as_str(), c.porta, c.banco.as_str(), c.usuario.as_str(), s.as_str(), c.tls), (Tipo::Postgres, "192.168.0.223", 5432, "lotofacil_db", "postgres", "se@nha", false));
+        let (c, s) = Conexao::de_url("mysql://ana@db.x.com/loja?ssl-mode=REQUIRED").unwrap();
+        assert_eq!((c.tipo, c.porta, c.usuario.as_str(), s.as_str(), c.tls), (Tipo::MySql, 3306, "ana", "", true));
+        assert!(Conexao::de_url("192.168.0.223").is_none());
+        assert!(Conexao::de_url("postgres://h:porta/x").is_none());
+    }
+
+    /// Contra um Postgres de verdade: `FEATHERDB_TESTE_PG=postgresql://... cargo test -- --ignored`.
+    #[test]
+    #[ignore]
+    fn postgres_de_verdade() {
+        let url = std::env::var("FEATHERDB_TESTE_PG").expect("FEATHERDB_TESTE_PG");
+        let (c, senha) = Conexao::de_url(&url).unwrap();
+        let mut b = c.conectar(&senha).unwrap();
+        let tabelas = b.tabelas().unwrap();
+        println!("{} tabelas: {:?}", tabelas.len(), tabelas.iter().take(8).map(|t| &t.nome).collect::<Vec<_>>());
+        if let Some(t) = tabelas.first() {
+            let cols = b.colunas(t).unwrap();
+            println!("colunas de {}: {:?}", t.nome, cols);
+            let r = b.executar(&format!("SELECT * FROM {}", t.qualificado(Tipo::Postgres)), 3).unwrap();
+            println!("{:?}\n{:?}", r.colunas, r.linhas);
+        }
+        let r = b.executar("select 1 as um, now()::text as agora, null as nada, 'ção' as texto", 10).unwrap();
+        assert_eq!(r.colunas, ["um", "agora", "nada", "texto"]);
+        assert_eq!(r.linhas[0][0].as_deref(), Some("1"));
+        assert_eq!(r.linhas[0][2], None);
+        assert_eq!(r.linhas[0][3].as_deref(), Some("ção"));
+        assert!(b.executar("select * from tabela_que_nao_existe_featherdb", 1).unwrap_err().contains("tabela_que_nao_existe_featherdb"));
     }
 
     #[test]
