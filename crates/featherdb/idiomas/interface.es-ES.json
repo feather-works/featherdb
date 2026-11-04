@@ -255,5 +255,15 @@
  "agora": "ahora",
  "há {} min": "hace {} min",
  "há {} h": "hace {} h",
- "há {} dias": "hace {} días"
+ "há {} dias": "hace {} días",
+ "Copiar o SQL": "Copiar el SQL",
+ "Formatar o SQL (Ctrl+Shift+F)": "Formatear el SQL (Ctrl+Shift+F)",
+ "Formatar é para SQL; comandos do MongoDB ficam como estão.": "Formatear es para SQL; los comandos de MongoDB quedan como están.",
+ "Lendo o SQL da tabela…": "Leyendo el SQL de la tabla…",
+ "Não foi possível ler o SQL da tabela": "No se pudo leer el SQL de la tabla",
+ "O plano da consulta é para PostgreSQL, MySQL e SQLite.": "El plan de la consulta es para PostgreSQL, MySQL y SQLite.",
+ "Plano da consulta (EXPLAIN) do comando do cursor": "Plan de la consulta (EXPLAIN) del comando del cursor",
+ "Pôr no editor": "Poner en el editor",
+ "SQL copiado.": "SQL copiado.",
+ "SQL da tabela posto no editor.": "SQL de la tabla puesto en el editor."
 }

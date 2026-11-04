@@ -13,6 +13,8 @@ use crate::{acao_pequena, em_segundo_plano, grade, rolagem, vazio, Alvo, App, Ms
 pub(crate) enum Aba {
     Dados,
     Estrutura,
+    /// O SQL que cria a tabela (CREATE TABLE / VIEW).
+    Sql,
 }
 
 /// O diálogo de editar (ou criar) uma coluna.
@@ -175,6 +177,37 @@ impl App {
             lista = lista.push(container(linha).style(move |_| if par { Style::default().background(COR_PAINEL_FAIXA()) } else { Style::default() }));
         }
         rolagem(lista).width(Length::FILL).height(Length::FILL).into()
+    }
+
+    /// Lê o CREATE TABLE da tabela aberta (uma vez por tabela).
+    pub(crate) fn carregar_ddl(&mut self) -> Task<Msg> {
+        let Some((alvo, t)) = self.tabela_aberta.clone() else { return Task::none() };
+        let chave = format!("{}/{:?}/{}", alvo.0, alvo.1, t.qualificado(self.tipo(alvo.0)));
+        if self.ddl.as_ref().is_some_and(|(c, _)| *c == chave) {
+            return Task::none();
+        }
+        let Some(banco) = self.base(&alvo).and_then(|b| b.banco.clone()) else { return Task::none() };
+        self.ddl = Some((chave.clone(), None));
+        em_segundo_plano(move || banco.lock().map_err(|_| tr("A conexão travou; desconecte e conecte de novo.").to_owned())?.ddl(&t), move |r| Msg::Ddl(chave, r))
+    }
+
+    /// A aba SQL: o CREATE da tabela, para copiar ou levar ao editor.
+    pub(crate) fn view_ddl(&self) -> Element<'_, Msg> {
+        match self.ddl.as_ref().map(|(_, r)| r) {
+            Some(Some(Ok(sql))) => rolagem(container(text(sql.as_str()).size(13).font(Font::MONO)).padding(14)).width(Length::FILL).height(Length::FILL).into(),
+            Some(Some(Err(e))) => vazio("alert-triangle", tr("Não foi possível ler o SQL da tabela"), e),
+            _ => vazio("clock", tr("Lendo o SQL da tabela…"), ""),
+        }
+    }
+
+    pub(crate) fn acoes_ddl(&self) -> Element<'_, Msg> {
+        let pronto = matches!(self.ddl, Some((_, Some(Ok(_)))));
+        row![
+            acao_pequena(feather_ui::icones::icone_traco("copy", 15.0), tr("Copiar o SQL"), pronto.then_some(Msg::CopiarDdl)),
+            acao_pequena(feather_ui::icones::icone_traco("file-code", 15.0), tr("Pôr no editor"), pronto.then_some(Msg::DdlNoEditor)),
+        ]
+        .spacing(4)
+        .into()
     }
 
     /// As ações da aba Estrutura: adicionar coluna, copiar e exportar a lista.

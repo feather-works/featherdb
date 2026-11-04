@@ -2,6 +2,7 @@
 //! as consultas e o catálogo (tabelas e colunas). Nada de interface aqui.
 pub mod cofre;
 pub mod estrutura;
+pub mod formatar;
 pub use estrutura::{CampoDe, Coluna};
 mod mongo_banco;
 mod mysql_banco;
@@ -253,6 +254,12 @@ pub trait Banco: Send {
 
     /// As colunas da tabela, na ordem dela.
     fn colunas(&mut self, t: &Tabela) -> Result<Vec<Coluna>, String>;
+
+    /// O SQL que cria a tabela. O padrão monta pelas colunas; MySQL e SQLite pedem ao próprio banco.
+    fn ddl(&mut self, t: &Tabela) -> Result<String, String> {
+        let colunas = self.colunas(t)?;
+        Ok(estrutura::ddl(Tipo::Odbc, &t.qualificado(Tipo::Odbc), &colunas))
+    }
 
     /// Todas as colunas de todas as tabelas (o dicionário do banco), para buscar e exportar.
     /// O padrão pergunta tabela por tabela; Postgres e MySQL respondem numa consulta só.
@@ -664,6 +671,7 @@ mod testes {
         let d = b.dicionario().unwrap();
         assert_eq!(d.len(), 3);
         assert_eq!((d[2].tabela.as_str(), d[2].coluna.as_str()), ("pessoas", "nota"));
+        assert_eq!(b.ddl(&t[0]).unwrap(), "CREATE TABLE pessoas (id integer primary key, nome text, nota real);\n");
         assert!(b.executar("select * from nao_existe", 10).is_err());
         drop(b);
         std::fs::remove_file(&p).unwrap();

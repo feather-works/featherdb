@@ -89,6 +89,17 @@ impl Banco for Pg {
         crate::colunas_do_catalogo(self, &sql)
     }
 
+    fn ddl(&mut self, t: &crate::Tabela) -> Result<String, String> {
+        let nome = t.qualificado(crate::Tipo::Postgres);
+        if t.visao {
+            let r = self.executar(&format!("SELECT pg_get_viewdef({}::regclass, true)", crate::literal(&nome)), 1)?;
+            let corpo = r.linhas.into_iter().next().and_then(|l| l.into_iter().next().flatten()).unwrap_or_default();
+            return Ok(format!("CREATE VIEW {nome} AS\n{}\n", corpo.trim_end()));
+        }
+        let colunas = self.colunas(t)?;
+        Ok(crate::estrutura::ddl(crate::Tipo::Postgres, &nome, &colunas))
+    }
+
     fn dicionario(&mut self) -> Result<Vec<crate::CampoDe>, String> {
         crate::dicionario_do_catalogo(
             self,

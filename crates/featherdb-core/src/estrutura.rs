@@ -154,6 +154,29 @@ pub fn sql_alterar(tipo: Tipo, tabela: &str, antes: &Coluna, depois: &Coluna) ->
     Ok(s)
 }
 
+/// O `CREATE TABLE` montado pelas colunas (o padrão vem do catálogo já como expressão SQL).
+pub fn ddl(tipo: Tipo, tabela: &str, colunas: &[Coluna]) -> String {
+    let q = |n: &str| identificador(n, tipo);
+    let mut linhas: Vec<String> = colunas
+        .iter()
+        .map(|c| {
+            let mut l = format!("  {} {}", q(&c.nome), c.tipo);
+            if !c.nulo {
+                l.push_str(" NOT NULL");
+            }
+            if let Some(p) = c.padrao.as_deref().filter(|p| !p.trim().is_empty()) {
+                l.push_str(&format!(" DEFAULT {p}"));
+            }
+            l
+        })
+        .collect();
+    let chave: Vec<String> = colunas.iter().filter(|c| c.chave).map(|c| q(&c.nome)).collect();
+    if !chave.is_empty() {
+        linhas.push(format!("  PRIMARY KEY ({})", chave.join(", ")));
+    }
+    format!("CREATE TABLE {tabela} (\n{}\n);\n", linhas.join(",\n"))
+}
+
 /// O texto separado (CSV ou TSV para a planilha) de uma lista de colunas.
 pub fn colunas_em_texto(colunas: &[Coluna], sep: char) -> String {
     let campo = |s: &str| if s.contains([sep, '"', '\n']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_owned() };
@@ -222,6 +245,16 @@ mod testes {
         assert!(sql_alterar(Tipo::Sqlite, "t", &antes, &depois).is_err());
         let so_nome = col("criado_em", "datetime", true, None);
         assert_eq!(sql_alterar(Tipo::Sqlite, "t", &antes, &so_nome).unwrap(), vec!["ALTER TABLE t RENAME COLUMN criado TO criado_em"]);
+    }
+
+    #[test]
+    fn ddl_com_chave_e_padrao() {
+        let c = |nome: &str, tipo: &str, nulo: bool, padrao: Option<&str>, chave: bool| Coluna { nome: nome.into(), tipo: tipo.into(), nulo, padrao: padrao.map(Into::into), chave };
+        let cols = [c("id", "integer", false, Some("nextval('t_id_seq'::regclass)"), true), c("Nome", "varchar(80)", true, None, false)];
+        assert_eq!(
+            ddl(Tipo::Postgres, "public.t", &cols),
+            "CREATE TABLE public.t (\n  id integer NOT NULL DEFAULT nextval('t_id_seq'::regclass),\n  \"Nome\" varchar(80),\n  PRIMARY KEY (id)\n);\n"
+        );
     }
 
     #[test]

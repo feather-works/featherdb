@@ -84,6 +84,13 @@ impl Banco for My {
         crate::colunas_do_catalogo(self, &sql)
     }
 
+    fn ddl(&mut self, t: &crate::Tabela) -> Result<String, String> {
+        // A segunda coluna do SHOW CREATE é o SQL (TABLE ou VIEW).
+        let r = self.executar(&format!("SHOW CREATE TABLE {}", t.qualificado(crate::Tipo::MySql)), 1)?;
+        let sql = r.linhas.into_iter().next().and_then(|l| l.into_iter().nth(1).flatten()).unwrap_or_default();
+        Ok(format!("{sql};\n"))
+    }
+
     fn dicionario(&mut self) -> Result<Vec<crate::CampoDe>, String> {
         crate::dicionario_do_catalogo(
             self,

@@ -104,6 +104,11 @@ enum Msg {
     Colunas(Alvo, String, Result<Vec<Coluna>, String>, bool),
     VerEstrutura(Alvo, Tabela),
     Aba(Aba),
+    Ddl(String, Result<String, String>),
+    CopiarDdl,
+    DdlNoEditor,
+    Formatar,
+    Explicar,
     EditarColuna(Option<Coluna>),
     Edicao(CampoColuna),
     CopiarColunas,
@@ -160,6 +165,8 @@ struct App {
     /// A tabela aberta no painel de baixo (abas Dados e Estrutura).
     tabela_aberta: Option<(Alvo, Tabela)>,
     aba: Aba,
+    /// O CREATE da tabela aberta (aba SQL): de qual tabela e o que veio (`None` enquanto lê).
+    ddl: Option<(String, Option<Result<String, String>>)>,
     edicao: Option<EdicaoColuna>,
     /// Depois de um ALTER TABLE: ler de novo as colunas desta tabela.
     recarregar: Option<(Alvo, Tabela)>,
@@ -251,6 +258,7 @@ impl App {
             visiveis: Vec::new(),
             tabela_aberta: None,
             aba: Aba::Dados,
+            ddl: None,
             edicao: None,
             recarregar: None,
             aviso: String::new(),
@@ -686,7 +694,59 @@ impl pelicano::App for App {
                     return self.carregar_colunas(alvo, t, false);
                 }
             }
-            Msg::Aba(a) => self.aba = a,
+            Msg::Aba(a) => {
+                self.aba = a;
+                if a == Aba::Sql {
+                    return self.carregar_ddl();
+                }
+            }
+            Msg::Ddl(chave, r) => {
+                if let Some((c, v)) = &mut self.ddl {
+                    if *c == chave {
+                        *v = Some(r);
+                    }
+                }
+            }
+            Msg::CopiarDdl | Msg::DdlNoEditor => {
+                let Some((_, Some(Ok(sql)))) = &self.ddl else { return Task::none() };
+                if matches!(msg, Msg::DdlNoEditor) {
+                    self.editor.insert(&format!("\n{sql}"));
+                    self.gravar_rascunho();
+                    self.aviso = tr("SQL da tabela posto no editor.").to_owned();
+                } else {
+                    self.aviso = match arboard::Clipboard::new().and_then(|mut c| c.set_text(sql.clone())) {
+                        Ok(()) => tr("SQL copiado.").to_owned(),
+                        Err(e) => trf("Não foi possível copiar: {}", &[&e]),
+                    };
+                }
+            }
+            Msg::Formatar => {
+                if self.item_ativo().is_some_and(|i| i.conexao.tipo == Tipo::MongoDb) {
+                    self.aviso = tr("Formatar é para SQL; comandos do MongoDB ficam como estão.").to_owned();
+                    return Task::none();
+                }
+                // Com seleção, formata só ela; sem, o editor inteiro. Ctrl+Z desfaz.
+                match self.editor.selection().filter(|s| !s.trim().is_empty()) {
+                    Some(s) => self.editor.insert(featherdb_core::formatar::formatar(&s).trim_end()),
+                    None => self.editor.set_text(&featherdb_core::formatar::formatar(&self.editor.text())),
+                }
+                self.gravar_rascunho();
+            }
+            Msg::Explicar => {
+                let Some(tipo) = self.item_ativo().map(|i| i.conexao.tipo) else { return Task::none() };
+                let prefixo = match tipo {
+                    Tipo::Postgres | Tipo::MySql => "EXPLAIN ",
+                    Tipo::Sqlite => "EXPLAIN QUERY PLAN ",
+                    Tipo::Odbc | Tipo::MongoDb => {
+                        self.aviso = tr("O plano da consulta é para PostgreSQL, MySQL e SQLite.").to_owned();
+                        return Task::none();
+                    }
+                };
+                let Some(c) = featherdb_core::dividir(&self.comando_atual()).into_iter().next() else { return Task::none() };
+                self.tabela_aberta = None;
+                self.aba = Aba::Dados;
+                return self.rodar(vec![format!("{prefixo}{c}")]);
+            }
             Msg::EditarColuna(c) => self.abrir_edicao(c),
             Msg::Edicao(c) => return self.update_edicao(c),
             Msg::CopiarColunas | Msg::ExportarColunas => {
@@ -883,6 +943,7 @@ impl pelicano::App for App {
                             }
                             self.tabela_aberta = Some((alvo.clone(), t.clone()));
                             self.aba = Aba::Estrutura;
+                            self.ddl = None;
                             self.aviso = tr("Coluna alterada.").to_owned();
                             return self.carregar_colunas(alvo, t, false);
                         }
@@ -1046,6 +1107,7 @@ fn atalho(key: &Key, m: Modifiers) -> Option<Msg> {
         Key::Named(NamedKey::Enter) if m.control_key() => Some(Msg::Executar),
         Key::Named(NamedKey::F5) => Some(Msg::ExecutarTudo),
         Key::Character(c) if m.alt_key() && c.eq_ignore_ascii_case("x") => Some(Msg::ExecutarTudo),
+        Key::Character(c) if m.control_key() && m.shift_key() && c.eq_ignore_ascii_case("f") => Some(Msg::Formatar),
         Key::Character(c) if m.control_key() && c.eq_ignore_ascii_case("h") => Some(Msg::Historico(Some(String::new()))),
         _ => None,
     }
@@ -1306,6 +1368,8 @@ impl App {
         .padding([6, 14])
         .style(estilo_botao_primario)
         .on_press(msg);
+        let formatar = acao_pequena(feather_ui::icones::icone_traco("wand", 15.0), tr("Formatar o SQL (Ctrl+Shift+F)"), Some(Msg::Formatar));
+        let explicar = acao_pequena(feather_ui::icones::icone_traco("sitemap", 15.0), tr("Plano da consulta (EXPLAIN) do comando do cursor"), pode.then_some(Msg::Explicar));
         let historico = acao_pequena(feather_ui::icones::icone_traco("history", 15.0), tr("Histórico de consultas (Ctrl+H)"), Some(Msg::Historico(Some(String::new()))));
         let script = button(row![icone_tabler(EXECUTAR_TUDO, 15.0), text(tr("Script")).size(13)].spacing(6).align(Align::Center))
             .padding([6, 12])
@@ -1314,6 +1378,8 @@ impl App {
         row![
             onde,
             horizontal_space(),
+            formatar,
+            explicar,
             historico,
             tooltip(script, tr("Executar o script inteiro (Alt+X)"), TooltipPosition::Bottom).padding([4, 8]).style(estilo_dica),
             tooltip(executar, dica, TooltipPosition::Bottom).padding([4, 8]).style(estilo_dica),
@@ -1345,14 +1411,21 @@ impl App {
             Space::new(8, 0),
             aba(tr("Dados"), Aba::Dados),
             aba(if mongo { tr("Campos") } else { tr("Estrutura") }, Aba::Estrutura),
-            Space::new(4, 0),
         ]
         .spacing(4)
         .align(Align::Center);
+        if !mongo {
+            barra = barra.push(aba("SQL", Aba::Sql));
+        }
+        barra = barra.push(Space::new(4, 0));
         let corpo = match self.aba {
             Aba::Dados => {
                 barra = self.chips_e_acoes(barra);
                 self.corpo_dados()
+            }
+            Aba::Sql => {
+                barra = barra.push(horizontal_space()).push(self.acoes_ddl());
+                self.view_ddl()
             }
             Aba::Estrutura => {
                 let n = ncol.map(|n| if mongo { trf("{} campos", &[&n]) } else { trf("{} colunas", &[&n]) }).unwrap_or_default();

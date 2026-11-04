@@ -187,12 +187,6 @@ pub(crate) fn view<'a>(r: &'a Resultado, linhas: &[usize], ordenacao: Option<(us
         .into()
 }
 
-const PALAVRAS: &[&str] = &[
-    "ADD", "ALL", "ALTER", "AND", "AS", "ASC", "BEGIN", "BETWEEN", "BY", "CASE", "CAST", "COMMIT", "CREATE", "CROSS", "DEFAULT", "DELETE", "DESC",
-    "DISTINCT", "DROP", "ELSE", "END", "EXISTS", "FALSE", "FROM", "FULL", "GROUP", "HAVING", "IN", "INDEX", "INNER", "INSERT", "INTO", "IS", "JOIN",
-    "KEY", "LEFT", "LIKE", "LIMIT", "NOT", "NULL", "OFFSET", "ON", "OR", "ORDER", "OUTER", "OVER", "PARTITION", "PRIMARY", "REFERENCES", "RIGHT",
-    "ROLLBACK", "SELECT", "SET", "TABLE", "THEN", "TOP", "TRUE", "TRUNCATE", "UNION", "UPDATE", "USING", "VALUES", "VIEW", "WHEN", "WHERE", "WITH",
-];
 
 /// Cores de uma linha do editor: palavras-chave na cor de destaque; textos e comentários apagados.
 pub(crate) fn cores_sql(linha: &str, chave: Color, apagado: Color) -> Vec<(std::ops::Range<usize>, Color)> {
@@ -213,7 +207,7 @@ pub(crate) fn cores_sql(linha: &str, chave: Color, apagado: Color) -> Vec<(std::
         }
         if c.is_ascii_alphabetic() || c == b'_' {
             let fim = linha[i..].find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_')).map_or(b.len(), |f| i + f);
-            if PALAVRAS.binary_search(&linha[i..fim].to_ascii_uppercase().as_str()).is_ok() {
+            if featherdb_core::formatar::palavra_chave(&linha[i..fim]) {
                 saida.push((i..fim, chave));
             }
             i = fim;
@@ -242,11 +236,6 @@ pub(crate) fn separado(r: &Resultado, linhas: &[usize], sep: char) -> String {
 #[cfg(test)]
 mod testes {
     use super::*;
-
-    #[test]
-    fn palavras_em_ordem_para_a_busca() {
-        assert!(PALAVRAS.windows(2).all(|w| w[0] < w[1]));
-    }
 
     #[test]
     fn cores_da_linha() {

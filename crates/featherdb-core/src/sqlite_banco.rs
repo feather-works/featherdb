@@ -65,6 +65,11 @@ impl Banco for Lite {
             .collect())
     }
 
+    fn ddl(&mut self, t: &Tabela) -> Result<String, String> {
+        let sql: String = self.0.query_row("SELECT sql FROM sqlite_master WHERE name = ?1", [&t.nome], |l| l.get(0)).map_err(|e| e.to_string())?;
+        Ok(format!("{sql};\n"))
+    }
+
     fn colunas(&mut self, t: &Tabela) -> Result<Vec<crate::Coluna>, String> {
         let mut st = self.0.prepare("SELECT name, type, \"notnull\", dflt_value, pk FROM pragma_table_info(?1)").map_err(|e| e.to_string())?;
         let linhas = st
