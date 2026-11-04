@@ -1,6 +1,7 @@
 //! FeatherDB: cliente de banco de dados leve. À esquerda as conexões com as tabelas; à direita o
 //! editor de SQL e a grade do resultado. Postgres, MySQL, SQLite e qualquer banco com ODBC.
 mod ajuda;
+mod abas;
 mod auxiliares;
 mod celulas;
 mod completar;
@@ -111,6 +112,7 @@ enum Msg {
     DdlNoEditor,
     Formatar,
     Sugestao(completar::Tecla),
+    Abas(abas::AcaoAba),
     Celula(celulas::AcaoCelula),
     Explicar,
     EditarColuna(Option<Coluna>),
@@ -149,6 +151,9 @@ enum Msg {
 }
 
 struct App {
+    /// As abas de consulta guardadas; a da tela (`aba_atual`) mora nos campos abaixo.
+    consultas: Vec<abas::Consulta>,
+    aba_atual: usize,
     itens: Vec<Item>,
     proximo_id: u64,
     ativa: Option<Alvo>,
@@ -216,9 +221,6 @@ fn arquivo_conexoes() -> Option<std::path::PathBuf> {
     config::pasta().map(|p| p.join("conexoes.txt"))
 }
 
-fn arquivo_rascunho() -> Option<std::path::PathBuf> {
-    config::pasta().map(|p| p.join("rascunho.sql"))
-}
 
 /// Botão de ação da barra com o ícone de traço monocromático (sem as cores da faixa).
 fn acao<'a>(nome: &str, dica: &str, msg: Option<Msg>) -> Element<'a, Msg> {
@@ -247,13 +249,16 @@ fn marca(tamanho: f32) -> SvgView {
 impl App {
     fn novo(config: config::Config) -> App {
         let conexoes = arquivo_conexoes().map(|a| featherdb_core::ler_conexoes(&a)).unwrap_or_default();
-        let rascunho = arquivo_rascunho().and_then(|a| std::fs::read_to_string(a).ok()).unwrap_or_default();
+        let rascunhos = abas::ler_rascunhos();
         let itens: Vec<Item> = conexoes.into_iter().enumerate().map(|(i, c)| Item::novo(i as u64 + 1, c)).collect();
+        let primeira = itens.first().map(|i| (i.id, None));
         App {
+            consultas: rascunhos.iter().map(|t| abas::Consulta::nova(t, primeira.clone())).collect(),
+            aba_atual: 0,
             proximo_id: itens.len() as u64 + 1,
             ativa: itens.first().map(|i| (i.id, None)),
             itens,
-            editor: Content::with_text(&rascunho),
+            editor: Content::with_text(&rascunhos[0]),
             resultado: None,
             erro: None,
             executando: false,
@@ -308,7 +313,7 @@ impl App {
 
     /// Guarda o texto do editor a cada mudança, para nada se perder se o app ou o computador cair.
     fn gravar_rascunho(&self) {
-        if let Some(a) = arquivo_rascunho() {
+        if let Some(a) = abas::arquivo(self.aba_atual) {
             if let Some(p) = a.parent() {
                 let _ = std::fs::create_dir_all(p);
             }
@@ -932,6 +937,7 @@ impl pelicano::App for App {
                 return self.sugerir();
             }
             Msg::Sugestao(t) => self.tecla_sugestao(t),
+            Msg::Abas(a) => return self.update_abas(a),
             Msg::Celula(a) => return self.update_celula(a),
             Msg::ExecutarTudo => {
                 self.tabela_aberta = None;
@@ -1150,6 +1156,8 @@ pub(crate) fn atalho(key: &Key, m: Modifiers) -> Option<Msg> {
         Key::Named(NamedKey::F5) => Some(Msg::ExecutarTudo),
         Key::Character(c) if m.alt_key() && c.eq_ignore_ascii_case("x") => Some(Msg::ExecutarTudo),
         Key::Character(c) if m.control_key() && m.shift_key() && c.eq_ignore_ascii_case("f") => Some(Msg::Formatar),
+        Key::Character(c) if m.control_key() && c.eq_ignore_ascii_case("t") => Some(Msg::Abas(abas::AcaoAba::Nova)),
+        Key::Character(c) if m.control_key() && c.eq_ignore_ascii_case("w") => Some(Msg::Abas(abas::AcaoAba::FecharAtual)),
         Key::Character(c) if m.control_key() && c.eq_ignore_ascii_case("h") => Some(Msg::Historico(Some(String::new()))),
         _ => None,
     }
@@ -1377,7 +1385,7 @@ impl App {
         if let Some(s) = self.view_sugestao() {
             texto = texto.push(s);
         }
-        let editor = painel(column![self.cabecalho_editor(), divisoria(), texto]).height(Length::Fill(2));
+        let editor = painel(column![self.view_abas(), divisoria(), self.cabecalho_editor(), divisoria(), texto]).height(Length::Fill(2));
         let resultado = painel(self.view_resultado()).height(Length::Fill(3));
         container(column![editor, resultado].spacing(8).width(Length::FILL))
             .padding(8)
@@ -1719,6 +1727,27 @@ mod testes {
         app.editor = Content::with_text("delete from b;\nselect 1");
         assert_eq!(app.editor.cursor(), (1, 1));
         assert_eq!(app.comando_atual(), "delete from b");
+    }
+
+    #[test]
+    fn abas_guardam_o_texto_e_a_conexao_de_cada_uma() {
+        // Os rascunhos das abas vão para uma pasta de teste, não para a do usuário.
+        let pasta = std::env::temp_dir().join(format!("featherdb-abas-{}", std::process::id()));
+        std::env::set_var("XDG_CONFIG_HOME", &pasta);
+        let mut app = App::novo(config::Config::default());
+        app.editor = Content::with_text("select 1");
+        app.ativa = Some((7, None));
+        let _ = pelicano::App::update(&mut app, Msg::Abas(abas::AcaoAba::Nova));
+        assert_eq!((app.aba_atual, app.editor.text().trim().to_owned()), (1, String::new()));
+        app.editor = Content::with_text("select 2");
+        app.ativa = Some((8, None));
+        let _ = pelicano::App::update(&mut app, Msg::Abas(abas::AcaoAba::Ir(0)));
+        assert_eq!((app.editor.text().trim(), app.ativa.clone()), ("select 1", Some((7, None))));
+        let _ = pelicano::App::update(&mut app, Msg::Abas(abas::AcaoAba::Fechar(0)));
+        assert_eq!((app.editor.text().trim(), app.ativa.clone(), app.consultas.len(), app.aba_atual), ("select 2", Some((8, None)), 1, 0));
+        assert_eq!(std::fs::read_to_string(pasta.join("featherdb/rascunho.sql")).unwrap().trim(), "select 2");
+        assert!(!pasta.join("featherdb/rascunho-2.sql").exists());
+        let _ = std::fs::remove_dir_all(pasta);
     }
 }
 

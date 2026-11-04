@@ -282,5 +282,9 @@
  "Só dá para editar a tabela aberta com clique duplo, e ela precisa de chave primária.": "Solo se puede editar la tabla abierta con doble clic, y necesita clave primaria.",
  "clique duplo edita": "doble clic para editar",
  "{} célula(s) mudada(s)": "{} celda(s) cambiada(s)",
- "{} linha(s) vão mudar no banco:": "{} fila(s) van a cambiar en la base:"
+ "{} linha(s) vão mudar no banco:": "{} fila(s) van a cambiar en la base:",
+ "Consulta {}": "Consulta {}",
+ "Espere a consulta terminar (ou pare) para trocar de aba.": "Espera a que termine la consulta (o detenla) para cambiar de pestaña.",
+ "No máximo {} abas.": "Como máximo {} pestañas.",
+ "Nova aba de consulta (Ctrl+T)": "Nueva pestaña de consulta (Ctrl+T)"
 }

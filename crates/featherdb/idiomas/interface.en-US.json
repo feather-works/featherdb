@@ -282,5 +282,9 @@
  "Só dá para editar a tabela aberta com clique duplo, e ela precisa de chave primária.": "You can only edit a table opened with a double click, and it needs a primary key.",
  "clique duplo edita": "double-click to edit",
  "{} célula(s) mudada(s)": "{} cell(s) changed",
- "{} linha(s) vão mudar no banco:": "{} row(s) will change in the database:"
+ "{} linha(s) vão mudar no banco:": "{} row(s) will change in the database:",
+ "Consulta {}": "Query {}",
+ "Espere a consulta terminar (ou pare) para trocar de aba.": "Wait for the query to finish (or stop it) to switch tabs.",
+ "No máximo {} abas.": "At most {} tabs.",
+ "Nova aba de consulta (Ctrl+T)": "New query tab (Ctrl+T)"
 }
