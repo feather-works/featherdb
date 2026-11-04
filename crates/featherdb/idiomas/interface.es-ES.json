@@ -406,5 +406,15 @@
  "Chaves estrangeiras": "Claves foráneas",
  "Gatilhos": "Disparadores",
  "Não foi possível ler os índices: {}": "No se pudieron leer los índices: {}",
- "Índices": "Índices"
+ "Índices": "Índices",
+ "Campo vazio vira NULL. Datas e números precisam estar no formato que o banco aceita. Se uma linha der erro, nenhuma entra.": "Un campo vacío se vuelve NULL. Fechas y números deben estar en el formato que la base acepta. Si una fila falla, no entra ninguna.",
+ "Colunas que entram ({}): {}": "Columnas que entran ({}): {}",
+ "Ficam de fora (sem coluna com esse nome na tabela): {}": "Quedan fuera (sin columna con ese nombre en la tabla): {}",
+ "Importando {} linhas em {}…": "Importando {} filas en {}…",
+ "Importar CSV": "Importar CSV",
+ "Importar CSV…": "Importar CSV…",
+ "Importar": "Importar",
+ "Nenhuma coluna do CSV tem o nome de uma coluna da tabela.": "Ninguna columna del CSV tiene el nombre de una columna de la tabla.",
+ "O arquivo não tem linhas depois do cabeçalho.": "El archivo no tiene filas después del encabezado.",
+ "{} linhas vão entrar em {}.": "{} filas van a entrar en {}."
 }

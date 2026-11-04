@@ -76,7 +76,8 @@ pub(crate) fn anotar(comandos: &[String], onde: &str) {
         let _ = std::fs::create_dir_all(p);
     }
     let quando = agora();
-    let novo: String = comandos.iter().filter(|c| !tem_senha(c)).map(|c| linha(quando, onde, c)).collect();
+    // Comando gigante (lote de importação) não entra: o histórico é para reaproveitar consultas.
+    let novo: String = comandos.iter().filter(|c| !tem_senha(c) && c.len() < 20_000).map(|c| linha(quando, onde, c)).collect();
     if novo.is_empty() {
         return;
     }

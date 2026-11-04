@@ -11,6 +11,7 @@ mod formulario;
 mod grade;
 mod historico;
 mod idioma;
+mod importar;
 mod objetos;
 mod resultado;
 
@@ -125,6 +126,7 @@ enum Msg {
     Detalhes(Alvo, String, Result<featherdb_core::Detalhes, String>),
     Apagar(Alvo, Tabela),
     ConfirmarApagar(bool),
+    Importar(importar::AcaoImportar),
     Aba(Aba),
     Ddl(String, Result<String, String>),
     CopiarDdl,
@@ -239,6 +241,7 @@ struct App {
     renomear: Option<(Alvo, Tabela, String)>,
     /// Pedindo confirmação para apagar (DROP) uma tabela ou view.
     apagar: Option<(Alvo, Tabela)>,
+    importacao: Option<importar::Importacao>,
     /// A janela do histórico aberta, com o texto da busca.
     historico: Option<(String, Vec<historico::Entrada>)>,
     /// O texto do filtro da árvore de tabelas.
@@ -338,6 +341,7 @@ impl App {
             transacao_nova: None,
             renomear: None,
             apagar: None,
+            importacao: None,
             historico: None,
             filtro: String::new(),
             menu: None,
@@ -580,7 +584,7 @@ impl App {
         if let Some(b) = self.base_mut(&alvo) {
             if fecha {
                 b.transacao = false;
-            } else if manual && !b.transacao && comandos.iter().any(|c| featherdb_core::muda_dados(c)) {
+            } else if manual && !b.transacao && comandos.first().is_none_or(|c| c != "BEGIN") && comandos.iter().any(|c| featherdb_core::muda_dados(c)) {
                 b.transacao = true;
                 comandos.insert(0, "BEGIN".into());
                 self.transacao_nova = Some(alvo.clone());
@@ -887,6 +891,7 @@ impl pelicano::App for App {
                 Err(e) => self.aviso = trf("Não foi possível ler os índices: {}", &[&e]),
             },
             Msg::Apagar(alvo, t) => self.apagar = Some((alvo, t)),
+            Msg::Importar(a) => return self.update_importar(a),
             Msg::ConfirmarApagar(sim) => {
                 let Some((alvo, t)) = self.apagar.take() else { return Task::none() };
                 if sim {
@@ -1263,6 +1268,9 @@ impl pelicano::App for App {
         if self.apagar.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::ConfirmarApagar(false));
         }
+        if self.importacao.is_some() {
+            return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::Importar(importar::AcaoImportar::Confirmar(false)));
+        }
         if self.celulas.confirmar.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::Celula(celulas::AcaoCelula::Confirmar(false)));
         }
@@ -1306,6 +1314,9 @@ impl pelicano::App for App {
         }
         if self.renomear.is_some() {
             return self.view_renomear(janela);
+        }
+        if self.importacao.is_some() {
+            return self.view_importar(janela);
         }
         if let Some((alvo, t)) = &self.apagar {
             let sql = featherdb_core::estrutura::sql_apagar(self.tipo(alvo.0), t).unwrap_or_default();
@@ -1916,6 +1927,7 @@ impl App {
                     ))
                     .push(item(traco("copy"), tr("Copiar o nome"), Some(Msg::CopiarTexto(t.qualificado(tipo)))))
                     .push(item(traco("pencil"), tr("Renomear…"), matches!(tipo, Tipo::Postgres | Tipo::MySql | Tipo::Sqlite).then(|| Msg::Objeto(objetos::AcaoObjeto::Renomear(id.clone(), t.clone())))))
+                    .push(item(traco("file-plus"), tr("Importar CSV…"), (!t.visao && tipo.tem_transacao()).then(|| Msg::Importar(importar::AcaoImportar::Escolher(id.clone(), t.clone())))))
                     .push(item(traco("trash"), tr("Apagar…"), (!mongo).then(|| Msg::Apagar(id.clone(), t.clone()))))
                     .push(item(traco("file-export"), if mongo { tr("Exportar os campos (CSV)") } else { tr("Exportar as colunas (CSV)") }, Some(Msg::ExportarColunasDe(id.clone(), t.clone()))));
             }

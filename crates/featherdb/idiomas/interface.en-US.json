@@ -406,5 +406,15 @@
  "Chaves estrangeiras": "Foreign keys",
  "Gatilhos": "Triggers",
  "Não foi possível ler os índices: {}": "Could not read the indexes: {}",
- "Índices": "Indexes"
+ "Índices": "Indexes",
+ "Campo vazio vira NULL. Datas e números precisam estar no formato que o banco aceita. Se uma linha der erro, nenhuma entra.": "An empty field becomes NULL. Dates and numbers must be in a format the database accepts. If one row fails, none goes in.",
+ "Colunas que entram ({}): {}": "Columns going in ({}): {}",
+ "Ficam de fora (sem coluna com esse nome na tabela): {}": "Left out (no column with that name in the table): {}",
+ "Importando {} linhas em {}…": "Importing {} rows into {}…",
+ "Importar CSV": "Import CSV",
+ "Importar CSV…": "Import CSV…",
+ "Importar": "Import",
+ "Nenhuma coluna do CSV tem o nome de uma coluna da tabela.": "No CSV column has the name of a table column.",
+ "O arquivo não tem linhas depois do cabeçalho.": "The file has no rows after the header.",
+ "{} linhas vão entrar em {}.": "{} rows will go into {}."
 }

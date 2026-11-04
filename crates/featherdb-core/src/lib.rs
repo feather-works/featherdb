@@ -3,6 +3,7 @@
 pub mod cofre;
 pub mod estrutura;
 pub mod formatar;
+pub mod importar;
 pub use estrutura::{CampoDe, Coluna};
 mod mongo_banco;
 mod mysql_banco;
