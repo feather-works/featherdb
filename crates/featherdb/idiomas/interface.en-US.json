@@ -163,5 +163,14 @@
  "Conectado a {} · {}": "Connected to {} · {}",
  "Conectando a {}…": "Connecting to {}…",
  "Sem conexão": "Not connected",
- "conectada": "connected"
+ "conectada": "connected",
+ "Contar as linhas (COUNT)": "Count the rows (COUNT)",
+ "Copiado: {}": "Copied: {}",
+ "Copiar o nome": "Copy the name",
+ "Esconder as colunas": "Hide the columns",
+ "Escrever o SELECT no editor": "Write the SELECT in the editor",
+ "Mostrar as colunas": "Show the columns",
+ "Ver os dados (SELECT *)": "View the data (SELECT *)",
+ "Botão direito numa tabela: ver os dados, escrever o SELECT com as colunas no editor, contar as linhas ou copiar o nome. Na conexão: conectar, editar e excluir.": "Right-click a table: view the data, write the SELECT with its columns in the editor, count the rows or copy the name. On a connection: connect, edit and delete.",
+ "Menu do botão direito nas tabelas e nas conexões (SELECT, COUNT, editar).": "Right-click menu on tables and connections (SELECT, COUNT, edit)."
 }

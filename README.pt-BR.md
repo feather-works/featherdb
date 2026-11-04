@@ -17,7 +17,8 @@ A ideia do DBeaver, sem o peso: abre na hora e usa cerca de 100 MB de memória.
   mesmo sem o unixODBC instalado.
 - **Editor de SQL:** `Ctrl+Enter` roda o comando do cursor (ou a seleção); `Alt+X`/`F5` roda o script
   inteiro. As consultas rodam em segundo plano: a janela nunca trava.
-- **Árvore de tabelas:** tabelas, visões e colunas com o tipo; clique duplo numa tabela mostra os dados.
+- **Árvore de tabelas:** tabelas, visões e colunas com o tipo; clique duplo numa tabela mostra os dados;
+  o botão direito tem SELECT, COUNT, copiar o nome, editar e excluir.
   Um filtro acha a tabela em bancos com milhares delas.
 - **Resultado:** até 1.000 linhas, em páginas de 200; copiar tudo para colar no FeatherSheet ou no
   Excel, ou exportar CSV.

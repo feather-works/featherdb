@@ -17,7 +17,8 @@ Think DBeaver, without the weight: it opens instantly and uses about 100 MB of R
   connect, so FeatherDB opens even if unixODBC is not installed.
 - **SQL editor:** `Ctrl+Enter` runs the statement under the cursor (or the selection); `Alt+X`/`F5` runs
   the whole script. Queries run in the background, so the window never freezes.
-- **Table tree:** tables, views and columns with their types; double-click a table to see its data.
+- **Table tree:** tables, views and columns with their types; double-click a table to see its data;
+  right-click for SELECT, COUNT, copy the name, edit or delete.
   A filter finds tables in databases with thousands of them.
 - **Results:** up to 1,000 rows, in pages of 200; copy everything to paste into FeatherSheet or Excel,
   or export CSV.

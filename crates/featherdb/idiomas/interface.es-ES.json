@@ -163,5 +163,14 @@
  "Conectado a {} · {}": "Conectado a {} · {}",
  "Conectando a {}…": "Conectando a {}…",
  "Sem conexão": "Sin conexión",
- "conectada": "conectada"
+ "conectada": "conectada",
+ "Contar as linhas (COUNT)": "Contar las filas (COUNT)",
+ "Copiado: {}": "Copiado: {}",
+ "Copiar o nome": "Copiar el nombre",
+ "Esconder as colunas": "Ocultar las columnas",
+ "Escrever o SELECT no editor": "Escribir el SELECT en el editor",
+ "Mostrar as colunas": "Mostrar las columnas",
+ "Ver os dados (SELECT *)": "Ver los datos (SELECT *)",
+ "Botão direito numa tabela: ver os dados, escrever o SELECT com as colunas no editor, contar as linhas ou copiar o nome. Na conexão: conectar, editar e excluir.": "Clic derecho en una tabla: ver los datos, escribir el SELECT con las columnas en el editor, contar las filas o copiar el nombre. En la conexión: conectar, editar y eliminar.",
+ "Menu do botão direito nas tabelas e nas conexões (SELECT, COUNT, editar).": "Menú de clic derecho en tablas y conexiones (SELECT, COUNT, editar)."
 }

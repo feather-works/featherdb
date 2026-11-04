@@ -82,6 +82,7 @@ fn montar() -> Catalogo {
                 topico("arvore", "A árvore de tabelas", vec![
                     t("Clique numa conexão para conectar e abrir as tabelas. Clique numa tabela para ver as colunas e o tipo de cada uma."),
                     t("Clique duplo numa tabela mostra os dados dela na grade."),
+                    t("Botão direito numa tabela: ver os dados, escrever o SELECT com as colunas no editor, contar as linhas ou copiar o nome. Na conexão: conectar, editar e excluir."),
                     t("Criou uma tabela? O botão Atualizar tabelas lê a lista de novo."),
                     t("Muitas tabelas? Escreva parte do nome em Filtrar tabelas, no alto da árvore."),
                 ]),

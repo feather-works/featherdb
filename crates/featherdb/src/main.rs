@@ -47,6 +47,13 @@ struct Item {
     tabelas_abertas: HashSet<String>,
 }
 
+/// Onde o botão direito foi apertado.
+#[derive(Clone)]
+enum Menu {
+    Conexao(u64),
+    Tabela(u64, Tabela),
+}
+
 #[derive(Clone)]
 enum Msg {
     Janela(WindowCmd),
@@ -71,6 +78,15 @@ enum Msg {
     ExpandirTabela(u64, Tabela),
     Colunas(u64, String, Result<Vec<(String, String)>, String>),
     AbrirTabela(u64, Tabela),
+    // Menu do botão direito
+    AbrirMenu(Menu, pelicano::Point),
+    FecharMenu,
+    DoMenu(Box<Msg>),
+    Conectar(u64),
+    EscreverSelect(u64, Tabela),
+    Contar(u64, Tabela),
+    CopiarTexto(String),
+    TamanhoJanela(pelicano::Size),
     // Consultas
     EditorMudou,
     Executar,
@@ -99,6 +115,10 @@ struct App {
     excluir: Option<u64>,
     /// O texto do filtro da árvore de tabelas.
     filtro: String,
+    /// O menu do botão direito aberto, e onde.
+    menu: Option<(Menu, pelicano::Point)>,
+    /// Tamanho da janela, para o menu não sair dela.
+    tamanho: pelicano::Size,
     maximizada: bool,
     // Janelas auxiliares (auxiliares.rs)
     config: config::Config,
@@ -166,6 +186,8 @@ impl App {
             pedir_senha: None,
             excluir: None,
             filtro: String::new(),
+            menu: None,
+            tamanho: pelicano::Size::new(1280.0, 800.0),
             maximizada: false,
             config,
             janelas: Default::default(),
@@ -417,8 +439,39 @@ impl pelicano::App for App {
             Msg::AbrirTabela(id, t) => {
                 self.ativa = Some(id);
                 let Some(tipo) = self.itens.iter().find(|i| i.id == id).map(|i| i.conexao.tipo) else { return Task::none() };
-                return self.rodar(vec![format!("SELECT * FROM {}", t.qualificado(tipo))]);
+                // Com LIMIT o banco não manda a tabela inteira (o ODBC fica sem: cada banco escreve de um jeito).
+                let limite = if tipo == Tipo::Odbc { String::new() } else { format!(" LIMIT {LIMITE_LINHAS}") };
+                return self.rodar(vec![format!("SELECT * FROM {}{limite}", t.qualificado(tipo))]);
             }
+            Msg::AbrirMenu(m, p) => self.menu = Some((m, p)),
+            Msg::FecharMenu => self.menu = None,
+            Msg::DoMenu(m) => {
+                self.menu = None;
+                return self.update(*m);
+            }
+            Msg::Conectar(id) => return self.conectar(id),
+            Msg::EscreverSelect(id, t) => {
+                let Some(item) = self.itens.iter().find(|i| i.id == id) else { return Task::none() };
+                let tipo = item.conexao.tipo;
+                let colunas = item.colunas.get(&t.qualificado(tipo)).filter(|c| !c.is_empty()).map_or("*".to_owned(), |c| {
+                    c.iter().map(|(n, _)| featherdb_core::identificador(n, tipo)).collect::<Vec<_>>().join(", ")
+                });
+                self.ativa = Some(id);
+                self.editor.insert(&format!("SELECT {colunas}\nFROM {}\nWHERE ;\n", t.qualificado(tipo)));
+                self.gravar_rascunho();
+            }
+            Msg::Contar(id, t) => {
+                self.ativa = Some(id);
+                let Some(tipo) = self.itens.iter().find(|i| i.id == id).map(|i| i.conexao.tipo) else { return Task::none() };
+                return self.rodar(vec![format!("SELECT COUNT(*) AS total FROM {}", t.qualificado(tipo))]);
+            }
+            Msg::CopiarTexto(texto) => {
+                self.aviso = match arboard::Clipboard::new().and_then(|mut c| c.set_text(texto.clone())) {
+                    Ok(()) => trf("Copiado: {}", &[&texto]),
+                    Err(e) => trf("Não foi possível copiar: {}", &[&e]),
+                };
+            }
+            Msg::TamanhoJanela(t) => self.tamanho = t,
             Msg::Executar => {
                 // Cada comando vai sozinho: nem todo driver ODBC aceita vários de uma vez.
                 return self.rodar(featherdb_core::dividir(&self.comando_atual()));
@@ -477,6 +530,7 @@ impl pelicano::App for App {
         match ev {
             Event::CloseRequested => Some(Msg::Fechar),
             Event::Maximized(m) => Some(Msg::Maximizada(*m)),
+            Event::Resized(t) => Some(Msg::TamanhoJanela(*t)),
             _ => None,
         }
     }
@@ -488,6 +542,9 @@ impl pelicano::App for App {
         }
         if let Some(feather_ui::atalhos::AcaoGlobal::Ajuda) = feather_ui::atalhos::acao_global(key, *modifiers) {
             return Some(Msg::Aux(Aux::Abrir(Janela::Ajuda)));
+        }
+        if self.menu.is_some() {
+            return matches!(key, Key::Named(NamedKey::Escape)).then_some(Msg::FecharMenu);
         }
         if self.pedir_senha.is_some() || self.form.is_some() || self.excluir.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then(|| match () {
@@ -514,6 +571,9 @@ impl pelicano::App for App {
         let corpo = row![self.lateral(), divisoria_vertical(), self.area_consulta()].height(Length::FILL);
         let tudo = column![self.barra(), corpo, self.rodape()];
         let janela = cromo::moldura_redimensionavel_com(tudo.into(), self.maximizada, Msg::Puxar);
+        if self.menu.is_some() {
+            return self.view_menu(janela);
+        }
         if let Some(f) = &self.form {
             return f.view().sobre(janela);
         }
@@ -615,7 +675,8 @@ impl App {
                 .spacing(6)
                 .align(Align::Center);
                 let botao = button(linha).padding([4, 6]).width(Length::FILL).style(estilo_botao_pequeno(false)).on_press(Msg::ExpandirTabela(item.id, t.clone()));
-                let botao = mouse_area(botao).on_double_click(Msg::AbrirTabela(item.id, t.clone()));
+                let (id, tab) = (item.id, t.clone());
+                let botao = mouse_area(botao).on_double_click(Msg::AbrirTabela(item.id, t.clone())).on_right_press_at(move |p| Msg::AbrirMenu(Menu::Tabela(id, tab.clone()), p));
                 lista = lista.push(tooltip(botao, tr("Clique duplo mostra os dados"), TooltipPosition::Right).padding([4, 8]).style(estilo_dica));
                 if aberta {
                     for (nome, tipo) in item.colunas.get(&chave).map(Vec::as_slice).unwrap_or_default() {
@@ -687,7 +748,9 @@ impl App {
         .width(Length::FILL)
         .spacing(9)
         .align(Align::Center);
-        button(linha).padding([6, 8]).width(Length::FILL).style(estilo_botao_pequeno(ativa)).on_press(Msg::Expandir(item.id)).into()
+        let id = item.id;
+        let botao = button(linha).padding([6, 8]).width(Length::FILL).style(estilo_botao_pequeno(ativa)).on_press(Msg::Expandir(id));
+        mouse_area(botao).on_right_press_at(move |p| Msg::AbrirMenu(Menu::Conexao(id), p)).into()
     }
 
     fn area_consulta(&self) -> Element<'_, Msg> {
@@ -784,6 +847,57 @@ impl App {
         };
         let linha = row![text(estado).size(12).color(COR_TEXTO_MUTED()), Space::new(16, 0), text(self.aviso.as_str()).size(12)].align(Align::Center).padding([0, 14]);
         container(linha).height(26).align_y(Align::Center).width(Length::FILL).style(estilo_rodape).into()
+    }
+}
+
+impl App {
+    /// O menu do botão direito, no ponto do clique, sem passar das bordas da janela.
+    fn view_menu<'a>(&'a self, base: Element<'a, Msg>) -> Element<'a, Msg> {
+        let Some((menu, p)) = &self.menu else { return base };
+        let item = |icone: SvgView, rotulo: &str, msg: Option<Msg>| -> Element<'a, Msg> {
+            let linha = row![icone.color(COR_TEXTO_MUTED()), text(rotulo.to_owned()).size(13).width(Length::FILL)].spacing(10).align(Align::Center);
+            button(linha).width(Length::FILL).padding([7, 10]).style(estilo_botao_pequeno(false)).on_press_maybe(msg.map(|m| Msg::DoMenu(Box::new(m)))).into()
+        };
+        let traco = |n: &str| feather_ui::icones::icone_traco(n, 16.0);
+        let separador = || container(container(Space::new(Length::FILL, 1)).style(|_| Style::default().background(COR_BORDA_SUAVE()))).padding([4, 8]).width(Length::FILL);
+        let mut lista = column![].spacing(1);
+        match menu {
+            Menu::Conexao(id) => {
+                let id = *id;
+                let Some(i) = self.itens.iter().find(|i| i.id == id) else { return base };
+                let ligada = i.banco.is_some();
+                lista = lista
+                    .push(if ligada { item(icone_tabler(DESCONECTAR, 16.0), tr("Desconectar"), Some(Msg::Desconectar(id))) } else { item(traco("player-play"), tr("Conectar"), Some(Msg::Conectar(id))) })
+                    .push(item(traco("refresh"), tr("Atualizar tabelas"), ligada.then_some(Msg::Atualizar(id))))
+                    .push(separador())
+                    .push(item(traco("pencil"), tr("Editar conexão"), Some(Msg::Editar(id))))
+                    .push(item(traco("trash"), tr("Excluir conexão"), Some(Msg::Excluir(id))));
+            }
+            Menu::Tabela(id, t) => {
+                let (id, tipo) = (*id, self.itens.iter().find(|i| i.id == *id).map_or(Tipo::Postgres, |i| i.conexao.tipo));
+                let aberta = self.itens.iter().any(|i| i.id == id && i.tabelas_abertas.contains(&t.qualificado(tipo)));
+                lista = lista
+                    .push(item(traco("player-play"), tr("Ver os dados (SELECT *)"), Some(Msg::AbrirTabela(id, t.clone()))))
+                    .push(item(traco("pencil"), tr("Escrever o SELECT no editor"), Some(Msg::EscreverSelect(id, t.clone()))))
+                    .push(item(traco("math-function"), tr("Contar as linhas (COUNT)"), Some(Msg::Contar(id, t.clone()))))
+                    .push(separador())
+                    .push(item(traco("columns"), if aberta { tr("Esconder as colunas") } else { tr("Mostrar as colunas") }, Some(Msg::ExpandirTabela(id, t.clone()))))
+                    .push(item(traco("copy"), tr("Copiar o nome"), Some(Msg::CopiarTexto(t.qualificado(tipo)))));
+            }
+        }
+        const LARGURA: f32 = 270.0;
+        const ALTURA: f32 = 230.0;
+        let painel = container(lista).width(LARGURA).padding(5).style(|_| {
+            Style::default()
+                .background(COR_PAINEL())
+                .border(Border::rounded(8.0).color(COR_BORDA(), 1.0))
+                .shadow(pelicano::Shadow { color: pelicano::Color::BLACK.alpha(0.3), offset: pelicano::Point::new(0.0, 4.0), blur: 14.0 })
+        });
+        let x = p.x.min(self.tamanho.width - LARGURA - 8.0).max(4.0);
+        let y = p.y.min(self.tamanho.height - ALTURA - 8.0).max(4.0);
+        let fora = mouse_area(Space::new(Length::FILL, Length::FILL)).on_press(Msg::FecharMenu).on_right_press(Msg::FecharMenu);
+        let lugar = container(pelicano::opaque(painel)).padding(pelicano::Padding { top: y, left: x, right: 0.0, bottom: 0.0 });
+        pelicano::stack![base, fora, lugar].into()
     }
 }
 
