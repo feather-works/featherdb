@@ -30,6 +30,7 @@ pub(crate) struct Consulta {
     visiveis: Vec<usize>,
     celulas: crate::celulas::Celulas,
     arquivo_sql: Option<std::path::PathBuf>,
+    celula: Option<(usize, usize)>,
 }
 
 impl Consulta {
@@ -50,6 +51,7 @@ impl Consulta {
             visiveis: Vec::new(),
             celulas: Default::default(),
             arquivo_sql: None,
+            celula: None,
         }
     }
 }
@@ -86,6 +88,7 @@ impl App {
         std::mem::swap(&mut self.visiveis, &mut c.visiveis);
         std::mem::swap(&mut self.celulas, &mut c.celulas);
         std::mem::swap(&mut self.arquivo_sql, &mut c.arquivo_sql);
+        std::mem::swap(&mut self.celula, &mut c.celula);
     }
 
     /// Mostra a aba `i`. O lugar da aba da tela em `consultas` fica com um vazio enquanto ela está à mostra.

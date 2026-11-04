@@ -154,6 +154,34 @@ pub fn sql_alterar(tipo: Tipo, tabela: &str, antes: &Coluna, depois: &Coluna) ->
     Ok(s)
 }
 
+/// O valor como literal SQL (NULL, ou texto entre aspas; no MySQL a barra invertida vai dobrada).
+pub fn valor_sql(tipo: Tipo, v: Option<&str>) -> String {
+    match v {
+        None => "NULL".into(),
+        Some(v) if tipo == Tipo::MySql => crate::literal(&v.replace('\\', "\\\\")),
+        Some(v) => crate::literal(v),
+    }
+}
+
+/// O INSERT de uma linha nova da grade, só com as colunas que a pessoa preencheu (as outras ficam com o padrão).
+pub fn sql_inserir(tipo: Tipo, tabela: &str, colunas: &[String], valores: &[(usize, Option<String>)]) -> Option<String> {
+    if valores.is_empty() {
+        return None;
+    }
+    let nomes: Vec<String> = valores.iter().map(|(c, _)| identificador(&colunas[*c], tipo)).collect();
+    let vals: Vec<String> = valores.iter().map(|(_, v)| valor_sql(tipo, v.as_deref())).collect();
+    Some(format!("INSERT INTO {tabela} ({}) VALUES ({})", nomes.join(", "), vals.join(", ")))
+}
+
+/// O DELETE de uma linha pela chave primária. `None` quando a chave é vazia.
+pub fn sql_excluir(tipo: Tipo, tabela: &str, colunas: &[String], chaves: &[usize], linha: &[Option<String>]) -> Option<String> {
+    let mut onde = Vec::new();
+    for &k in chaves {
+        onde.push(format!("{} = {}", identificador(&colunas[k], tipo), valor_sql(tipo, Some(linha.get(k)?.as_deref()?))));
+    }
+    (!onde.is_empty()).then(|| format!("DELETE FROM {tabela} WHERE {}", onde.join(" AND ")))
+}
+
 /// O SQL que troca o nome de uma tabela, view ou view materializada (o esquema continua o mesmo).
 pub fn sql_renomear(tipo: Tipo, t: &crate::Tabela, novo: &str) -> Result<String, String> {
     let novo = novo.trim();
@@ -179,8 +207,8 @@ pub fn sql_renomear(tipo: Tipo, t: &crate::Tabela, novo: &str) -> Result<String,
 pub fn sql_atualizar(tipo: Tipo, tabela: &str, colunas: &[String], chaves: &[usize], linha: &[Option<String>], mudancas: &[(usize, Option<String>)]) -> Option<String> {
     let q = |n: &str| identificador(n, tipo);
     // No MySQL a barra invertida é escape dentro das aspas: vai dobrada para gravar como está.
-    let texto = |v: &str| if tipo == Tipo::MySql { crate::literal(&v.replace('\\', "\\\\")) } else { crate::literal(v) };
-    let valor = |v: &Option<String>| v.as_deref().map_or("NULL".to_owned(), texto);
+    let texto = |v: &str| valor_sql(tipo, Some(v));
+    let valor = |v: &Option<String>| valor_sql(tipo, v.as_deref());
     let set: Vec<String> = mudancas.iter().map(|(c, v)| format!("{} = {}", q(&colunas[*c]), valor(v))).collect();
     let mut onde = Vec::new();
     for &k in chaves {
@@ -314,6 +342,15 @@ mod testes {
         assert_eq!(sql_renomear(Tipo::MySql, &my, "pedidos").unwrap(), "RENAME TABLE loja.vendas TO loja.pedidos");
         assert!(sql_renomear(Tipo::Sqlite, &crate::Tabela { visao: true, ..t.clone() }, "x").is_err());
         assert!(sql_renomear(Tipo::Postgres, &t, "  ").is_err());
+    }
+
+    #[test]
+    fn inserir_e_excluir_linha() {
+        let cols = ["id".to_owned(), "nome".to_owned()];
+        assert_eq!(sql_inserir(Tipo::Postgres, "t", &cols, &[(1, Some("Ana".into()))]).as_deref(), Some("INSERT INTO t (nome) VALUES ('Ana')"));
+        assert_eq!(sql_inserir(Tipo::Postgres, "t", &cols, &[]), None);
+        assert_eq!(sql_excluir(Tipo::Postgres, "t", &cols, &[0], &[Some("3".into()), None]).as_deref(), Some("DELETE FROM t WHERE id = '3'"));
+        assert_eq!(sql_excluir(Tipo::Postgres, "t", &cols, &[1], &[Some("3".into()), None]), None);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Editar dados na grade: clique duplo numa célula da tabela aberta, Enter guarda a mudança (ainda
 //! não no banco), e Salvar mostra os UPDATE antes de rodar. Só em tabela com chave primária
 //! (é ela que acha a linha) e em PostgreSQL, MySQL e SQLite.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use feather_ui::tema::*;
 use featherdb_core::{estrutura, Tipo};
@@ -20,6 +20,17 @@ pub(crate) struct Celulas {
     pub(crate) confirmar: Option<Vec<String>>,
     /// Depois de salvar, ler a tabela de novo.
     pub(crate) recarregar: bool,
+    /// Linhas novas (acrescentadas no fim do resultado) e linhas marcadas para excluir.
+    pub(crate) novas: BTreeSet<usize>,
+    pub(crate) excluir: BTreeSet<usize>,
+    /// Quantas linhas o resultado tinha antes das novas (Descartar volta a esse tamanho).
+    pub(crate) originais: Option<usize>,
+}
+
+impl Celulas {
+    pub(crate) fn tem_mudanca(&self) -> bool {
+        !self.pendentes.is_empty() || !self.novas.is_empty() || !self.excluir.is_empty()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -31,6 +42,9 @@ pub(crate) enum AcaoCelula {
     Cancelar,
     Descartar,
     Salvar,
+    NovaLinha,
+    /// Marca (ou desmarca) a linha da célula escolhida para excluir.
+    ExcluirLinha,
     Confirmar(bool),
 }
 
@@ -67,16 +81,30 @@ impl App {
             return Err(tr("Esta tabela não dá para editar aqui.").to_owned());
         };
         let tipo = self.tipo(alvo.0);
+        let tabela = t.qualificado(tipo);
+        let ed = &self.celulas;
         let mut por_linha: BTreeMap<usize, Vec<(usize, Option<String>)>> = BTreeMap::new();
-        for ((l, c), v) in &self.celulas.pendentes {
+        for ((l, c), v) in &ed.pendentes {
             por_linha.entry(*l).or_default().push((*c, v.clone()));
         }
-        por_linha
-            .into_iter()
-            .map(|(l, m)| {
-                estrutura::sql_atualizar(tipo, &t.qualificado(tipo), &r.colunas, &chaves, &r.linhas[l], &m).ok_or_else(|| trf("A linha {} tem a chave vazia: não dá para achar ela no banco.", &[&(l + 1)]))
-            })
-            .collect()
+        let sem_chave = |l: usize| trf("A linha {} tem a chave vazia: não dá para achar ela no banco.", &[&(l + 1)]);
+        let mut sql = Vec::new();
+        // Primeiro os DELETE, depois os UPDATE, por último os INSERT (uma chave apagada pode voltar numa linha nova).
+        for &l in ed.excluir.difference(&ed.novas) {
+            sql.push(estrutura::sql_excluir(tipo, &tabela, &r.colunas, &chaves, &r.linhas[l]).ok_or_else(|| sem_chave(l))?);
+        }
+        for (l, m) in &por_linha {
+            if ed.excluir.contains(l) || ed.novas.contains(l) {
+                continue;
+            }
+            sql.push(estrutura::sql_atualizar(tipo, &tabela, &r.colunas, &chaves, &r.linhas[*l], m).ok_or_else(|| sem_chave(*l))?);
+        }
+        for l in ed.novas.difference(&ed.excluir) {
+            if let Some(s) = estrutura::sql_inserir(tipo, &tabela, &r.colunas, por_linha.get(l).map(Vec::as_slice).unwrap_or_default()) {
+                sql.push(s);
+            }
+        }
+        Ok(sql)
     }
 
     pub(crate) fn update_celula(&mut self, a: AcaoCelula) -> Task<Msg> {
@@ -110,7 +138,40 @@ impl App {
                 }
             }
             AcaoCelula::Cancelar => self.celulas.editando = None,
-            AcaoCelula::Descartar => self.celulas = Default::default(),
+            AcaoCelula::Descartar => {
+                // As linhas novas saem do resultado.
+                if let (Some(n), Some(r)) = (self.celulas.originais, self.resultado.as_mut()) {
+                    r.linhas.truncate(n);
+                }
+                self.celulas = Default::default();
+                self.celula = None;
+                self.reordenar();
+            }
+            AcaoCelula::NovaLinha => {
+                if self.chaves_editaveis().is_none() {
+                    return Task::none();
+                }
+                self.guardar_celula();
+                let Some(r) = self.resultado.as_mut() else { return Task::none() };
+                self.celulas.originais.get_or_insert(r.linhas.len());
+                r.linhas.push(vec![None; r.colunas.len()]);
+                let l = r.linhas.len() - 1;
+                self.celulas.novas.insert(l);
+                self.reordenar();
+                // Já abre a primeira célula para digitar e rola até o fim, onde a linha nova aparece.
+                self.celula = Some((l, 0));
+                self.celulas.editando = Some((l, 0, String::new()));
+                return pelicano::Task::scroll_to(("grade", self.versao_resultado), pelicano::Point::new(self.rolagem.0, f32::INFINITY));
+            }
+            AcaoCelula::ExcluirLinha => {
+                let Some((l, _)) = self.celula else {
+                    self.aviso = tr("Clique numa célula da linha que vai sair.").to_owned();
+                    return Task::none();
+                };
+                if self.chaves_editaveis().is_some() && !self.celulas.excluir.remove(&l) {
+                    self.celulas.excluir.insert(l);
+                }
+            }
             AcaoCelula::Salvar => {
                 self.guardar_celula();
                 match self.sql_das_mudancas() {

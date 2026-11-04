@@ -122,6 +122,7 @@ pub(crate) fn view<'a>(
     linhas: &[usize],
     ordenacao: Option<(usize, bool)>,
     celulas: Option<&crate::celulas::Celulas>,
+    selecionada: Option<(usize, usize)>,
     pos: (f32, f32),
     vista: (f32, f32),
     versao: u64,
@@ -173,10 +174,7 @@ pub(crate) fn view<'a>(
         let l = &r.linhas[ri];
         let num = celula(text((i + 1).to_string()).size(11.5).color(COR_TEXTO_MUTED()).into(), LARGURA_NUM, ALTURA_LINHA, true);
         let cel = |c: usize| {
-            let Some(ed) = celulas else {
-                return celula(valor(l.get(c).and_then(|v| v.as_deref())), larg[c], ALTURA_LINHA, numerica[c]);
-            };
-            if let Some((_, _, t)) = ed.editando.as_ref().filter(|(el, ec, _)| (*el, *ec) == (ri, c)) {
+            if let Some((_, _, t)) = celulas.and_then(|ed| ed.editando.as_ref()).filter(|(el, ec, _)| (*el, *ec) == (ri, c)) {
                 let campo = pelicano::text_input("", t.clone())
                     .on_input(|s| Msg::Celula(AcaoCelula::Texto(s)))
                     .on_submit(Msg::Celula(AcaoCelula::Guardar))
@@ -185,20 +183,41 @@ pub(crate) fn view<'a>(
                     .padding([4, 6]);
                 return container(campo).width(larg[c]).height(ALTURA_LINHA).padding([2, 2]).align_y(Align::Center).into();
             }
-            let mudou = ed.pendentes.get(&(ri, c));
+            let mudou = celulas.and_then(|ed| ed.pendentes.get(&(ri, c)));
+            let mudada = mudou.is_some();
             let v = match mudou {
                 Some(m) => m.as_deref(),
                 None => l.get(c).and_then(|v| v.as_deref()),
             };
             let e = celula(valor(v), larg[c], ALTURA_LINHA, numerica[c]);
-            let e: Element<'static, Msg> = if mudou.is_some() { container(e).style(|_| Style::default().background(COR_AZUL_FUNDO())).into() } else { e };
-            pelicano::mouse_area(e).on_double_click(Msg::Celula(AcaoCelula::Editar(ri, c))).into()
+            // A célula escolhida ganha borda na cor de destaque; a mudada (ainda não gravada), fundo azul.
+            let sel = selecionada == Some((ri, c));
+            let e: Element<'static, Msg> = if sel || mudada {
+                container(e)
+                    .style(move |_| {
+                        let s = if mudada { Style::default().background(COR_AZUL_FUNDO()) } else { Style::default() };
+                        if sel { s.border(pelicano::Border::rounded(2.0).color(COR_AZUL_ACENTO(), 1.5)) } else { s }
+                    })
+                    .into()
+            } else {
+                e
+            };
+            let m = pelicano::mouse_area(e).on_press(Msg::Selecionar(ri, c)).on_right_press_at(move |p| Msg::AbrirMenu(crate::Menu::Celula(ri, c), p));
+            if celulas.is_some() { m.on_double_click(Msg::Celula(AcaoCelula::Editar(ri, c))).into() } else { m.into() }
         };
         let par = i % 2 == 1;
+        // Linha marcada para excluir: fundo de erro; linha nova: fundo azul (as duas só valem depois de Salvar).
+        let excluir = celulas.is_some_and(|ed| ed.excluir.contains(&ri));
+        let nova = celulas.is_some_and(|ed| ed.novas.contains(&ri));
         container(faixa(num, ALTURA_LINHA, &cel))
             .width(total_w)
             .height(ALTURA_LINHA)
-            .style(move |_| if par { Style::default().background(COR_PAINEL_FAIXA()) } else { Style::default() })
+            .style(move |_| match () {
+                _ if excluir => Style::default().background(COR_ERRO().alpha(0.18)),
+                _ if nova => Style::default().background(COR_AZUL_FUNDO()),
+                _ if par => Style::default().background(COR_PAINEL_FAIXA()),
+                _ => Style::default(),
+            })
             .into()
     });
     let corpo = column(
@@ -269,6 +288,50 @@ pub(crate) fn cores_sql(linha: &str, chave: Color, apagado: Color) -> Vec<(std::
     saida
 }
 
+/// As linhas como `INSERT INTO tabela (...) VALUES (...);`, uma por linha.
+pub(crate) fn como_insert(r: &Resultado, linhas: &[usize], tabela: &str, tipo: featherdb_core::Tipo) -> String {
+    let cols: Vec<String> = r.colunas.iter().map(|c| featherdb_core::identificador(c, tipo)).collect();
+    linhas
+        .iter()
+        .map(|&i| {
+            let vals: Vec<String> = r.linhas[i].iter().map(|v| featherdb_core::estrutura::valor_sql(tipo, v.as_deref())).collect();
+            format!("INSERT INTO {tabela} ({}) VALUES ({});\n", cols.join(", "), vals.join(", "))
+        })
+        .collect()
+}
+
+/// As linhas como lista JSON de objetos; colunas de número viram número, NULL vira null.
+pub(crate) fn como_json(r: &Resultado, linhas: &[usize]) -> String {
+    let lista: Vec<serde_json::Value> = linhas
+        .iter()
+        .map(|&i| {
+            let mut o = serde_json::Map::new();
+            for (c, nome) in r.colunas.iter().enumerate() {
+                let v = match r.linhas[i].get(c).cloned().flatten() {
+                    None => serde_json::Value::Null,
+                    Some(s) if r.tipos.get(c).is_some_and(|t| familia(t) == Familia::Numero) => {
+                        s.parse::<serde_json::Number>().map(serde_json::Value::Number).unwrap_or(serde_json::Value::String(s))
+                    }
+                    Some(s) => serde_json::Value::String(s),
+                };
+                o.insert(nome.clone(), v);
+            }
+            serde_json::Value::Object(o)
+        })
+        .collect();
+    serde_json::to_string_pretty(&lista).unwrap_or_default() + "\n"
+}
+
+/// As linhas como tabela Markdown (para colar em documento ou chamado).
+pub(crate) fn como_markdown(r: &Resultado, linhas: &[usize]) -> String {
+    let campo = |s: &str| s.replace('|', "\\|").replace(['\n', '\r'], " ");
+    let mut s = format!("| {} |\n|{}\n", r.colunas.iter().map(|c| campo(c)).collect::<Vec<_>>().join(" | "), " --- |".repeat(r.colunas.len()));
+    for &i in linhas {
+        s.push_str(&format!("| {} |\n", r.linhas[i].iter().map(|v| v.as_deref().map_or("NULL".to_owned(), campo)).collect::<Vec<_>>().join(" | ")));
+    }
+    s
+}
+
 /// O resultado como texto separado (cabeçalho + linhas). Campo com separador, aspas ou quebra
 /// de linha vai entre aspas, como o Excel e o FeatherSheet esperam.
 pub(crate) fn separado(r: &Resultado, linhas: &[usize], sep: char) -> String {
@@ -307,6 +370,19 @@ mod testes {
         let n = |v: &[&str]| Resultado { colunas: vec!["id".into()], linhas: v.iter().map(|x| vec![Some(x.to_string())]).collect(), ..Default::default() };
         // Diferem só no último dígito de 20: o f64 acharia iguais.
         assert_eq!(ordem(&n(&["12345678901234567891", "12345678901234567890", "-5", "-40", "0", "7"]), Some((0, true)), ""), vec![3, 2, 4, 5, 1, 0]);
+    }
+
+    #[test]
+    fn copiar_como_insert_json_e_markdown() {
+        let r = Resultado {
+            colunas: vec!["id".into(), "nome".into()],
+            tipos: vec!["int4".into(), "text".into()],
+            linhas: vec![vec![Some("1".into()), Some("O'Neil".into())], vec![Some("2".into()), None]],
+            ..Default::default()
+        };
+        assert_eq!(como_insert(&r, &[0], "t", featherdb_core::Tipo::Postgres), "INSERT INTO t (id, nome) VALUES ('1', 'O''Neil');\n");
+        assert_eq!(como_json(&r, &[1]), "[\n  {\n    \"id\": 2,\n    \"nome\": null\n  }\n]\n");
+        assert_eq!(como_markdown(&r, &[1]), "| id | nome |\n| --- | --- |\n| 2 | NULL |\n");
     }
 
     #[test]

@@ -12,6 +12,7 @@ mod grade;
 mod historico;
 mod idioma;
 mod objetos;
+mod resultado;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -86,6 +87,8 @@ enum Menu {
     Conexao(u64),
     Banco(u64, String),
     Tabela(Alvo, Tabela),
+    /// Uma célula da grade (linha do resultado, coluna).
+    Celula(usize, usize),
 }
 
 #[derive(Clone)]
@@ -159,6 +162,13 @@ enum Msg {
     UsarHistorico(String),
     Rolou(f32, f32, f32, f32),
     Ordenar(usize),
+    Selecionar(usize, usize),
+    PainelValor,
+    CopiarValor,
+    /// O formato e se é só a linha da célula escolhida.
+    CopiarComo(resultado::Formato, bool),
+    BuscarMais,
+    ExportarPara(Option<std::path::PathBuf>),
     FiltroGrade(String),
     Copiar,
     ExportarCsv,
@@ -186,6 +196,12 @@ struct App {
     versao_resultado: u64,
     /// Ordem da grade: a coluna e se é crescente; o filtro; e as linhas que sobram, na ordem da tela.
     ordenacao: Option<(usize, bool)>,
+    /// A célula escolhida na grade (linha do resultado, coluna) e se o painel de valor aparece.
+    celula: Option<(usize, usize)>,
+    painel_valor: bool,
+    /// Até quantas linhas a consulta traz (Buscar mais aumenta) e os comandos da última, para rodar de novo.
+    limite: usize,
+    ultimos: Vec<String>,
     filtro_grade: String,
     visiveis: Vec<usize>,
     /// A tabela aberta no painel de baixo (abas Dados e Estrutura).
@@ -291,6 +307,10 @@ impl App {
             vista: (900.0, 400.0),
             versao_resultado: 0,
             ordenacao: None,
+            celula: None,
+            painel_valor: true,
+            limite: LIMITE_LINHAS,
+            ultimos: Vec::new(),
             filtro_grade: String::new(),
             visiveis: Vec::new(),
             tabela_aberta: None,
@@ -439,6 +459,7 @@ impl App {
                     }
                 }
                 self.celulas = Default::default();
+                self.celula = None;
                 self.resultado = Some(r);
                 self.ordenacao = None;
                 self.filtro_grade.clear();
@@ -536,6 +557,8 @@ impl App {
         self.gravar_rascunho();
         self.rodada += 1;
         let rodada = self.rodada;
+        let limite = self.limite;
+        self.ultimos = comandos.clone();
         let mut comandos = comandos;
         self.transacao_nova = None;
         // Commit manual: o primeiro comando que muda dados abre a transação; COMMIT/ROLLBACK fecham.
@@ -565,7 +588,7 @@ impl App {
             move || {
                 let inicio = Instant::now();
                 let (r, nova) = match travar(&banco) {
-                    Ok(mut b) => rodar_comandos(&mut b, &comandos, conexao.as_ref(), &senha),
+                    Ok(mut b) => rodar_comandos(&mut b, &comandos, conexao.as_ref(), &senha, limite),
                     Err(e) => (Err(e), false),
                 };
                 (r, inicio.elapsed(), nova)
@@ -582,11 +605,11 @@ fn travar(banco: &Aberto) -> Result<std::sync::MutexGuard<'_, Box<dyn Banco>>, S
 
 /// Roda os comandos em ordem e para no primeiro erro; fica o resultado do último. Diz também se
 /// a conexão tinha caído e foi refeita (com `conexao`, uma vez).
-fn rodar_comandos(b: &mut Box<dyn Banco>, comandos: &[String], conexao: Option<&Conexao>, senha: &str) -> (Result<Resultado, String>, bool) {
+fn rodar_comandos(b: &mut Box<dyn Banco>, comandos: &[String], conexao: Option<&Conexao>, senha: &str, limite: usize) -> (Result<Resultado, String>, bool) {
     let mut r = Ok(Resultado::default());
     let mut nova = false;
     for (i, c) in comandos.iter().enumerate() {
-        r = b.executar(c, LIMITE_LINHAS);
+        r = b.executar(c, limite);
         // A conexão caiu (servidor reiniciou, ficou parada tempo demais): conecta de novo uma vez.
         // Leitura roda de novo; comando que muda dados não, porque pode ter chegado a rodar.
         if let (Err(e), Some(con), false) = (&r, conexao, nova) {
@@ -595,7 +618,7 @@ fn rodar_comandos(b: &mut Box<dyn Banco>, comandos: &[String], conexao: Option<&
                     *b = novo;
                     nova = true;
                     r = if featherdb_core::so_le(c) && i == 0 {
-                        b.executar(c, LIMITE_LINHAS)
+                        b.executar(c, limite)
                     } else {
                         Err(tr("A conexão tinha caído e foi refeita. O comando não rodou: confira e rode de novo.").to_owned())
                     };
@@ -1011,6 +1034,11 @@ impl pelicano::App for App {
             }
             Msg::AbrirTabela(alvo, t) => {
                 let tipo = self.tipo(alvo.0);
+                // Outra tabela começa no limite normal; a mesma (Buscar mais, depois de salvar) mantém o que já veio.
+                if self.tabela_aberta.as_ref() != Some(&(alvo.clone(), t.clone())) {
+                    self.limite = LIMITE_LINHAS;
+                }
+                let lim = self.limite;
                 self.ativa = Some(alvo.clone());
                 self.tabela_aberta = Some((alvo.clone(), t.clone()));
                 self.aba = Aba::Dados;
@@ -1018,14 +1046,19 @@ impl pelicano::App for App {
                 let colunas = if self.base(&alvo).is_some_and(|b| b.colunas.contains_key(&t.qualificado(tipo))) { Task::none() } else { self.carregar_colunas(alvo, t.clone(), false) };
                 // Com LIMIT o banco não manda a tabela inteira (o ODBC fica sem: cada banco escreve de um jeito).
                 let sql = match tipo {
-                    Tipo::MongoDb => format!("db.getCollection({:?}).find({{}}).limit({LIMITE_LINHAS})", t.nome),
+                    Tipo::MongoDb => format!("db.getCollection({:?}).find({{}}).limit({lim})", t.nome),
                     Tipo::Odbc => format!("SELECT * FROM {}", t.qualificado(tipo)),
-                    _ => format!("SELECT * FROM {} LIMIT {LIMITE_LINHAS}", t.qualificado(tipo)),
+                    _ => format!("SELECT * FROM {} LIMIT {lim}", t.qualificado(tipo)),
                 };
                 let rodar = self.rodar(vec![sql]);
                 return Task::batch([rodar, colunas]);
             }
-            Msg::AbrirMenu(m, p) => self.menu = Some((m, p)),
+            Msg::AbrirMenu(m, p) => {
+                if let Menu::Celula(l, c) = m {
+                    self.celula = Some((l, c));
+                }
+                self.menu = Some((m, p));
+            }
             Msg::FecharMenu => self.menu = None,
             Msg::DoMenu(m) => {
                 self.menu = None;
@@ -1066,6 +1099,7 @@ impl pelicano::App for App {
             }
             Msg::TamanhoJanela(t) => self.tamanho = t,
             Msg::Executar => {
+                self.limite = LIMITE_LINHAS;
                 self.tabela_aberta = None;
                 self.aba = Aba::Dados;
                 // Cada comando vai sozinho: nem todo driver ODBC aceita vários de uma vez.
@@ -1080,6 +1114,7 @@ impl pelicano::App for App {
             Msg::Objeto(a) => return self.update_objeto(a),
             Msg::Celula(a) => return self.update_celula(a),
             Msg::ExecutarTudo => {
+                self.limite = LIMITE_LINHAS;
                 self.tabela_aberta = None;
                 self.aba = Aba::Dados;
                 return self.rodar(featherdb_core::dividir(&self.editor.text()));
@@ -1109,17 +1144,31 @@ impl pelicano::App for App {
                     };
                 }
             }
-            Msg::ExportarCsv => {
-                let Some(r) = &self.resultado else { return Task::none() };
-                let csv = grade::separado(r, &self.visiveis, ',');
-                return Task::perform(
-                    async move {
-                        let arq = rfd::AsyncFileDialog::new().add_filter("CSV", &["csv"]).set_file_name("resultado.csv").save_file().await?;
-                        let caminho = arq.path().to_path_buf();
-                        Some(std::fs::write(&caminho, csv).map(|_| caminho).map_err(|e| e.to_string()))
-                    },
-                    Msg::Exportado,
-                );
+            Msg::ExportarCsv => return self.exportar(),
+            Msg::ExportarPara(c) => {
+                if let Some(c) = c {
+                    self.exportar_para(c);
+                }
+            }
+            Msg::Selecionar(l, c) => {
+                self.celula = Some((l, c));
+                self.painel_valor = true;
+            }
+            Msg::PainelValor => self.painel_valor = !self.painel_valor,
+            Msg::CopiarValor => self.copiar_valor(),
+            Msg::CopiarComo(f, linha) => self.copiar_como(f, linha),
+            Msg::BuscarMais => {
+                if self.executando {
+                    return Task::none();
+                }
+                self.limite += LIMITE_LINHAS;
+                if let Some((alvo, t)) = self.tabela_aberta.clone() {
+                    return self.update(Msg::AbrirTabela(alvo, t));
+                }
+                // Só roda de novo o que só lê (um INSERT rodaria duas vezes).
+                if !self.ultimos.is_empty() && !self.ultimos.iter().any(|c| featherdb_core::muda_dados(c)) {
+                    return self.rodar_conferido(self.ultimos.clone());
+                }
             }
             Msg::Exportado(r) => {
                 self.aviso = match r {
@@ -1633,15 +1682,23 @@ impl App {
             _ => trf("{} linhas", &[&r.linhas.len()]),
         };
         let tempo = self.tempo.map_or(String::new(), |t| trf("{} ms", &[&t.as_millis()]));
-        let filtro = pelicano::text_input(tr("Filtrar linhas"), &self.filtro_grade).on_input(Msg::FiltroGrade).size(12.5).padding([4, 8]).width(150);
-        barra = barra.push(chip(contagem)).push(chip(tempo)).push(horizontal_space());
+        let filtro = pelicano::text_input(tr("Filtrar linhas"), &self.filtro_grade).on_input(Msg::FiltroGrade).size(12.5).padding([4, 8]).width(120);
+        barra = barra.push(chip(contagem)).push(chip(tempo));
+        if let Some(b) = self.botao_buscar_mais() {
+            barra = barra.push(b);
+        }
+        barra = barra.push(horizontal_space());
         if self.chaves_editaveis().is_some() {
             use celulas::AcaoCelula as A;
             if self.celulas.editando.is_some() {
                 barra = barra.push(button(text("NULL").size(12).font(Font::MONO)).padding([4, 10]).style(estilo_botao_secundario).on_press(Msg::Celula(A::Nulo)));
             }
-            let n = self.celulas.pendentes.len();
-            if n > 0 {
+            barra = barra
+                .push(acao_pequena(feather_ui::icones::icone_traco("plus", 15.0), tr("Nova linha"), Some(Msg::Celula(A::NovaLinha))))
+                .push(acao_pequena(feather_ui::icones::icone_traco("trash", 15.0), tr("Excluir a linha da célula escolhida"), self.celula.is_some().then_some(Msg::Celula(A::ExcluirLinha))));
+            let ed = &self.celulas;
+            let n = ed.pendentes.len() + ed.novas.len() + ed.excluir.len();
+            if ed.tem_mudanca() {
                 barra = barra
                     .push(button(text(tr("Descartar")).size(12.5)).padding([4, 10]).style(estilo_botao_secundario).on_press(Msg::Celula(A::Descartar)))
                     .push(button(text(trf("Salvar ({})", &[&n])).size(12.5).font(Font::SEMIBOLD)).padding([4, 12]).style(estilo_botao_primario).on_press(Msg::Celula(A::Salvar)));
@@ -1652,7 +1709,7 @@ impl App {
         barra = barra.push(filtro);
         barra
             .push(acao_pequena(feather_ui::icones::icone_traco("copy", 15.0), tr("Copiar tudo (cola na planilha)"), Some(Msg::Copiar)))
-            .push(acao_pequena(feather_ui::icones::icone_traco("file-export", 15.0), tr("Exportar CSV"), Some(Msg::ExportarCsv)))
+            .push(acao_pequena(feather_ui::icones::icone_traco("file-export", 15.0), tr("Exportar (CSV, JSON, SQL ou Markdown)"), Some(Msg::ExportarCsv)))
     }
 
     /// O resultado: rodando, erro, vazio, contagem de linhas afetadas ou a grade.
@@ -1673,7 +1730,11 @@ impl App {
             return vazio("check", tr("Pronto"), &trf("{} linha(s) afetada(s).", &[&n]));
         }
         let celulas = self.chaves_editaveis().map(|_| &self.celulas);
-        grade::view(r, &self.visiveis, self.ordenacao, celulas, self.rolagem, self.vista, self.versao_resultado)
+        let g = grade::view(r, &self.visiveis, self.ordenacao, celulas, self.celula, self.rolagem, self.vista, self.versao_resultado);
+        match self.view_painel_valor() {
+            Some(p) => row![container(g).width(Length::FILL).height(Length::FILL), p].height(Length::FILL).into(),
+            None => g,
+        }
     }
 
     fn rodape(&self) -> Element<'_, Msg> {
@@ -1740,6 +1801,26 @@ impl App {
                     .push(item(traco("file-export"), tr("Exportar o dicionário do banco (CSV)"), aberto.then_some(Msg::ExportarDicionario(alvo.clone()))))
                     .push(separador());
                 lista = modelos(lista, alvo);
+            }
+            Menu::Celula(..) => {
+                use resultado::Formato as F;
+                let como = |f, linha| Some(Msg::CopiarComo(f, linha));
+                lista = lista
+                    .push(item(traco("copy"), tr("Copiar o valor"), Some(Msg::CopiarValor)))
+                    .push(item(traco("copy"), tr("Copiar a linha como INSERT"), como(F::Insert, true)))
+                    .push(item(traco("copy"), tr("Copiar a linha como JSON"), como(F::Json, true)))
+                    .push(separador())
+                    .push(item(traco("table"), tr("Copiar tudo para planilha"), como(F::Planilha, false)))
+                    .push(item(traco("code"), tr("Copiar tudo como INSERT"), como(F::Insert, false)))
+                    .push(item(traco("code"), tr("Copiar tudo como JSON"), como(F::Json, false)))
+                    .push(item(traco("file-code"), tr("Copiar tudo como Markdown"), como(F::Markdown, false)));
+                if self.chaves_editaveis().is_some() {
+                    use celulas::AcaoCelula as A;
+                    lista = lista
+                        .push(separador())
+                        .push(item(traco("plus"), tr("Nova linha"), Some(Msg::Celula(A::NovaLinha))))
+                        .push(item(traco("trash"), tr("Excluir a linha (ao salvar)"), Some(Msg::Celula(A::ExcluirLinha))));
+                }
             }
             Menu::Tabela(alvo, t) => {
                 let (id, tipo) = (alvo.clone(), self.tipo(alvo.0));
@@ -1923,7 +2004,7 @@ mod testes {
         b.executar("create table t (id integer primary key, nome text); insert into t values (1, 'Ana'), (2, 'Bia')", 0).unwrap();
         let c = |s: &str| s.to_owned();
         let comandos = [c("BEGIN"), c("UPDATE t SET nome = 'Eva' WHERE id = 1"), c("UPDATE t SET nao_existe = 1 WHERE id = 2"), c("COMMIT")];
-        let (r, nova) = rodar_comandos(&mut b, &comandos, None, "");
+        let (r, nova) = rodar_comandos(&mut b, &comandos, None, "", LIMITE_LINHAS);
         assert!(r.is_err() && !nova);
         let r = b.executar("select nome from t where id = 1", 1).unwrap();
         assert_eq!(r.linhas[0][0].as_deref(), Some("Ana"));
