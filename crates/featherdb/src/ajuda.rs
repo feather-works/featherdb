@@ -65,6 +65,7 @@ fn montar() -> Catalogo {
             secao("bancos", "Bancos de dados", "PostgreSQL, MySQL e SQLite vêm prontos. Os outros entram por ODBC.", vec![
                 topico("postgres-mysql", "PostgreSQL, MySQL e MariaDB", vec![
                     t("Preencha servidor, porta, banco e usuário. Bancos na nuvem quase sempre exigem a opção de conexão criptografada (TLS)."),
+                    t("Deixou o banco em branco? A árvore mostra todos os bancos do servidor; clique num deles para abrir as tabelas."),
                     t("Tem o endereço inteiro (postgresql://usuario:senha@servidor:5432/banco)? Cole no campo Servidor: os outros campos se preenchem sozinhos."),
                 ]),
                 topico("sqlite", "SQLite", vec![

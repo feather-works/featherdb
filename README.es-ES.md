@@ -17,7 +17,7 @@ La idea de DBeaver, sin el peso: abre al instante y usa unos 100 MB de memoria.
   abre aunque unixODBC no esté instalado.
 - **Editor SQL:** `Ctrl+Enter` ejecuta la sentencia del cursor (o la selección); `Alt+X`/`F5` ejecuta
   todo el script. Las consultas corren en segundo plano: la ventana nunca se congela.
-- **Árbol de tablas:** tablas, vistas y columnas con su tipo; doble clic en una tabla muestra los datos;
+- **Árbol de tablas:** sin base elegida, lista las bases del servidor (como DBeaver); tablas, vistas y columnas con su tipo; doble clic en una tabla muestra los datos;
   el clic derecho tiene SELECT, COUNT, copiar el nombre, editar y eliminar.
   Un filtro encuentra la tabla en bases con miles de ellas.
 - **Resultado:** hasta 1.000 filas, en páginas de 200; copiar todo para pegar en FeatherSheet o Excel,

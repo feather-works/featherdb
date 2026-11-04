@@ -172,5 +172,10 @@
  "A senha não foi guardada no cofre do sistema: {}": "The password was not saved in the system vault: {}",
  "Lembrar a senha neste computador (no cofre de senhas do sistema)": "Remember the password on this computer (in the system's password vault)",
  "Com Lembrar a senha ligado, ela fica no cofre de senhas do sistema (o mesmo do navegador) e não é pedida de novo. Nunca vai para um arquivo de texto.": "With Remember the password on, it is kept in the system's password vault (the same one your browser uses) and is not asked again. It never goes to a text file.",
- "A senha fica no cofre de senhas do sistema, nunca num arquivo.": "The password stays in the system's password vault, never in a file."
+ "A senha fica no cofre de senhas do sistema, nunca num arquivo.": "The password stays in the system's password vault, never in a file.",
+ "Não foi possível ler os bancos: {}": "Could not read the databases: {}",
+ "lendo os bancos…": "reading the databases…",
+ "nenhuma tabela": "no tables",
+ "Deixou o banco em branco? A árvore mostra todos os bancos do servidor; clique num deles para abrir as tabelas.": "Left the database blank? The tree shows every database on the server; click one to open its tables.",
+ "Sem banco escolhido, a árvore lista os bancos do servidor (Postgres e MySQL).": "With no database chosen, the tree lists the server's databases (Postgres and MySQL)."
 }

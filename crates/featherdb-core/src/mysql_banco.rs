@@ -62,6 +62,15 @@ impl Banco for My {
         Ok(r)
     }
 
+    fn bancos(&mut self) -> Result<Vec<String>, String> {
+        let r = self.executar(
+            "SELECT schema_name FROM information_schema.schemata \
+             WHERE schema_name NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys') ORDER BY 1",
+            usize::MAX,
+        )?;
+        Ok(r.linhas.into_iter().filter_map(|l| l.into_iter().next().flatten()).collect())
+    }
+
     fn tabelas(&mut self) -> Result<Vec<crate::Tabela>, String> {
         crate::tabelas_do_catalogo(
             self,

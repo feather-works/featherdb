@@ -13,6 +13,9 @@ outro projeto) e `../feather-ui-pelicano/GUIA-JANELAS.md` (ícones só Tabler, c
   texto em UTF-16, para os acentos não quebrarem no Windows).
   ODBC é o caminho para Datasphere/HANA, TIBCO TDV e outros (o papel do JDBC no DBeaver, sem Java).
 - `Content::cursor()` do pelicano conta de 1; o motor (`comando_no_cursor`) conta de 0 (`App::comando_atual`).
+- Árvore: `Item` (conexão) › `Base` (um banco aberto) › tabelas › colunas. Postgres/MySQL com o banco em branco
+  listam os bancos (`Banco::bancos`) e cada um abre a sua conexão (`App::abrir_banco`); o `Alvo` (id, banco)
+  diz onde o SQL roda.
 - A interface só chama o motor; consultas rodam em `spawn_blocking` (a janela nunca trava).
 - A senha nunca vai para arquivo: "Lembrar a senha" (ligado por padrão, pedido do usuário em 04/11/2026)
   guarda no cofre do sistema (`featherdb-core::cofre`, crate `keyring`; Secret Service no Linux), só depois

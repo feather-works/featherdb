@@ -172,5 +172,10 @@
  "A senha não foi guardada no cofre do sistema: {}": "La contraseña no se guardó en el almacén del sistema: {}",
  "Lembrar a senha neste computador (no cofre de senhas do sistema)": "Recordar la contraseña en esta computadora (en el almacén de contraseñas del sistema)",
  "Com Lembrar a senha ligado, ela fica no cofre de senhas do sistema (o mesmo do navegador) e não é pedida de novo. Nunca vai para um arquivo de texto.": "Con Recordar la contraseña activado, queda en el almacén de contraseñas del sistema (el mismo del navegador) y no se vuelve a pedir. Nunca va a un archivo de texto.",
- "A senha fica no cofre de senhas do sistema, nunca num arquivo.": "La contraseña queda en el almacén de contraseñas del sistema, nunca en un archivo."
+ "A senha fica no cofre de senhas do sistema, nunca num arquivo.": "La contraseña queda en el almacén de contraseñas del sistema, nunca en un archivo.",
+ "Não foi possível ler os bancos: {}": "No se pudieron leer las bases: {}",
+ "lendo os bancos…": "leyendo las bases…",
+ "nenhuma tabela": "ninguna tabla",
+ "Deixou o banco em branco? A árvore mostra todos os bancos do servidor; clique num deles para abrir as tabelas.": "¿Dejó la base en blanco? El árbol muestra todas las bases del servidor; haga clic en una para abrir sus tablas.",
+ "Sem banco escolhido, a árvore lista os bancos do servidor (Postgres e MySQL).": "Sin base elegida, el árbol lista las bases del servidor (Postgres y MySQL)."
 }

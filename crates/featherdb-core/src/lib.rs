@@ -207,6 +207,11 @@ pub trait Banco: Send {
     /// Tabelas e visões, menos as do sistema.
     fn tabelas(&mut self) -> Result<Vec<Tabela>, String>;
 
+    /// Os bancos do servidor (Postgres e MySQL), para a árvore quando a conexão não escolheu um.
+    fn bancos(&mut self) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
+
     /// Nome e tipo de cada coluna, na ordem da tabela.
     fn colunas(&mut self, t: &Tabela) -> Result<Vec<(String, String)>, String> {
         let sql = format!(
@@ -431,6 +436,9 @@ mod testes {
         let url = std::env::var("FEATHERDB_TESTE_PG").expect("FEATHERDB_TESTE_PG");
         let (c, senha) = Conexao::de_url(&url).unwrap();
         let mut b = c.conectar(&senha).unwrap();
+        let bancos = b.bancos().unwrap();
+        println!("bancos: {bancos:?}");
+        assert!(!bancos.is_empty());
         let tabelas = b.tabelas().unwrap();
         println!("{} tabelas: {:?}", tabelas.len(), tabelas.iter().take(8).map(|t| &t.nome).collect::<Vec<_>>());
         if let Some(t) = tabelas.first() {

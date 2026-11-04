@@ -32,13 +32,13 @@ const MAX_ARVORE: usize = 500;
 
 type Aberto = Arc<Mutex<Box<dyn Banco>>>;
 
-/// Uma conexão da lista, com o que está aberto dela nesta sessão.
-struct Item {
-    id: u64,
-    conexao: Conexao,
+/// Onde um comando vai: a conexão e, quando ela lista os bancos do servidor, o banco escolhido.
+type Alvo = (u64, Option<String>);
+
+/// Um banco aberto na árvore: a conexão com ele e o que já foi lido do catálogo.
+#[derive(Default)]
+struct Base {
     banco: Option<Aberto>,
-    /// A senha desta sessão (digitada ou lida do cofre do sistema; nunca vai para arquivo).
-    senha: Option<String>,
     conectando: bool,
     expandido: bool,
     tabelas: Vec<Tabela>,
@@ -47,11 +47,24 @@ struct Item {
     tabelas_abertas: HashSet<String>,
 }
 
+/// Uma conexão da lista, com o que está aberto dela nesta sessão.
+struct Item {
+    id: u64,
+    conexao: Conexao,
+    /// A senha desta sessão (digitada ou lida do cofre do sistema; nunca vai para arquivo).
+    senha: Option<String>,
+    /// A conexão principal (com o banco escolhido, ou com o servidor quando nenhum foi escolhido).
+    principal: Base,
+    /// Conexão sem banco escolhido (Postgres/MySQL): os bancos do servidor, cada um com a sua conexão.
+    bancos: Option<Vec<String>>,
+    bases: HashMap<String, Base>,
+}
+
 /// Onde o botão direito foi apertado.
 #[derive(Clone)]
 enum Menu {
     Conexao(u64),
-    Tabela(u64, Tabela),
+    Tabela(Alvo, Tabela),
 }
 
 #[derive(Clone)]
@@ -71,21 +84,23 @@ enum Msg {
     Senha(String),
     LembrarSenha(bool),
     ConfirmarSenha(bool),
-    Conectado(u64, Result<Aberto, String>),
+    Conectado(Alvo, Result<Aberto, String>),
     Desconectar(u64),
     Expandir(u64),
-    Atualizar(u64),
-    Tabelas(u64, Result<Vec<Tabela>, String>),
-    ExpandirTabela(u64, Tabela),
-    Colunas(u64, String, Result<Vec<(String, String)>, String>),
-    AbrirTabela(u64, Tabela),
+    ExpandirBanco(u64, String),
+    Bancos(u64, Result<Vec<String>, String>),
+    Atualizar(Alvo),
+    Tabelas(Alvo, Result<Vec<Tabela>, String>),
+    ExpandirTabela(Alvo, Tabela),
+    Colunas(Alvo, String, Result<Vec<(String, String)>, String>),
+    AbrirTabela(Alvo, Tabela),
     // Menu do botão direito
     AbrirMenu(Menu, pelicano::Point),
     FecharMenu,
     DoMenu(Box<Msg>),
     Conectar(u64),
-    EscreverSelect(u64, Tabela),
-    Contar(u64, Tabela),
+    EscreverSelect(Alvo, Tabela),
+    Contar(Alvo, Tabela),
     CopiarTexto(String),
     TamanhoJanela(pelicano::Size),
     // Consultas
@@ -102,7 +117,7 @@ enum Msg {
 struct App {
     itens: Vec<Item>,
     proximo_id: u64,
-    ativa: Option<u64>,
+    ativa: Option<Alvo>,
     editor: Content,
     resultado: Option<Resultado>,
     erro: Option<String>,
@@ -157,6 +172,7 @@ fn icone_tabler(caminho: &str, tamanho: f32) -> SvgView {
 const VISAO: &str = "M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0M21 12c-2.4 4 -5.4 6 -9 6c-3.6 0 -6.6 -2 -9 -6c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6";
 const SETA_DIREITA: &str = "M9 6l6 6l-6 6";
 const SETA_BAIXO: &str = "M6 9l6 6l6 -6";
+const BANCO: &str = "M12 6m-8 0a8 3 0 1 0 16 0a8 3 0 1 0 -16 0M4 6v6a8 3 0 0 0 16 0v-6M4 12v6a8 3 0 0 0 16 0v-6";
 const DESCONECTAR: &str = "M20 16l-4 4M7 12l5 5l-1.5 1.5a3.536 3.536 0 1 1 -5 -5l1.5 -1.5zM17 12l-5 -5l1.5 -1.5a3.536 3.536 0 1 1 5 5l-1.5 1.5zM3 21l2.5 -2.5M18.5 5.5l2.5 -2.5M10 11l-2 2M13 14l-2 2M16 16l4 4";
 const EXECUTAR_TUDO: &str = "M7 4v16l13 -8zM3 4v16";
 
@@ -174,7 +190,7 @@ impl App {
         let itens: Vec<Item> = conexoes.into_iter().enumerate().map(|(i, c)| Item::novo(i as u64 + 1, c)).collect();
         App {
             proximo_id: itens.len() as u64 + 1,
-            ativa: itens.first().map(|i| i.id),
+            ativa: itens.first().map(|i| (i.id, None)),
             itens,
             editor: Content::with_text(&rascunho),
             resultado: None,
@@ -249,7 +265,7 @@ impl App {
 
     fn conectar(&mut self, id: u64) -> Task<Msg> {
         let Some(item) = self.item(id) else { return Task::none() };
-        if item.banco.is_some() || item.conectando {
+        if item.principal.banco.is_some() || item.principal.conectando {
             return Task::none();
         }
         if item.senha.is_none() && App::precisa_senha(&item.conexao) {
@@ -260,15 +276,53 @@ impl App {
                 return Task::none();
             }
         }
-        item.conectando = true;
+        item.principal.conectando = true;
         let (c, senha) = (item.conexao.clone(), item.senha.clone().unwrap_or_default());
-        self.ativa = Some(id);
-        em_segundo_plano(move || c.conectar(&senha).map(|b| Arc::new(Mutex::new(b))), move |r| Msg::Conectado(id, r))
+        self.ativa = Some((id, None));
+        em_segundo_plano(move || c.conectar(&senha).map(|b| Arc::new(Mutex::new(b))), move |r| Msg::Conectado((id, None), r))
     }
 
-    fn carregar_tabelas(&self, id: u64) -> Task<Msg> {
-        let Some(banco) = self.itens.iter().find(|i| i.id == id).and_then(|i| i.banco.clone()) else { return Task::none() };
-        em_segundo_plano(move || banco.lock().map_err(|_| tr("A conexão travou; desconecte e conecte de novo.").to_owned())?.tabelas(), move |r| Msg::Tabelas(id, r))
+    /// Abre um banco do servidor (no Postgres cada banco é uma conexão), com a mesma senha.
+    fn abrir_banco(&mut self, id: u64, nome: String) -> Task<Msg> {
+        let Some(item) = self.item(id) else { return Task::none() };
+        let c = Conexao { banco: nome.clone(), ..item.conexao.clone() };
+        let senha = item.senha.clone().unwrap_or_default();
+        let base = item.bases.entry(nome.clone()).or_default();
+        if base.banco.is_some() || base.conectando {
+            return Task::none();
+        }
+        base.conectando = true;
+        em_segundo_plano(move || c.conectar(&senha).map(|b| Arc::new(Mutex::new(b))), move |r| Msg::Conectado((id, Some(nome)), r))
+    }
+
+    fn base(&self, alvo: &Alvo) -> Option<&Base> {
+        let item = self.itens.iter().find(|i| i.id == alvo.0)?;
+        match &alvo.1 {
+            None => Some(&item.principal),
+            Some(n) => item.bases.get(n),
+        }
+    }
+
+    fn base_mut(&mut self, alvo: &Alvo) -> Option<&mut Base> {
+        let item = self.itens.iter_mut().find(|i| i.id == alvo.0)?;
+        match &alvo.1 {
+            None => Some(&mut item.principal),
+            Some(n) => item.bases.get_mut(n),
+        }
+    }
+
+    fn tipo(&self, id: u64) -> Tipo {
+        self.itens.iter().find(|i| i.id == id).map_or(Tipo::Postgres, |i| i.conexao.tipo)
+    }
+
+    fn carregar_tabelas(&self, alvo: Alvo) -> Task<Msg> {
+        let Some(banco) = self.base(&alvo).and_then(|b| b.banco.clone()) else { return Task::none() };
+        em_segundo_plano(move || banco.lock().map_err(|_| tr("A conexão travou; desconecte e conecte de novo.").to_owned())?.tabelas(), move |r| Msg::Tabelas(alvo, r))
+    }
+
+    fn carregar_bancos(&self, id: u64) -> Task<Msg> {
+        let Some(banco) = self.base(&(id, None)).and_then(|b| b.banco.clone()) else { return Task::none() };
+        em_segundo_plano(move || banco.lock().map_err(|_| tr("A conexão travou; desconecte e conecte de novo.").to_owned())?.bancos(), move |r| Msg::Bancos(id, r))
     }
 
     /// Roda os comandos na conexão ativa; fica o resultado do último.
@@ -276,14 +330,16 @@ impl App {
         if comandos.is_empty() || self.executando {
             return Task::none();
         }
-        let Some(item) = self.ativa.and_then(|id| self.itens.iter().find(|i| i.id == id)) else {
+        let Some(alvo) = self.ativa.clone().filter(|(id, _)| self.itens.iter().any(|i| i.id == *id)) else {
             self.erro = Some(tr("Escolha uma conexão à esquerda (ou crie uma em Nova conexão).").into());
             return Task::none();
         };
-        let Some(banco) = item.banco.clone() else {
-            let id = item.id;
+        let Some(banco) = self.base(&alvo).and_then(|b| b.banco.clone()) else {
             self.erro = Some(tr("Conecte antes de rodar: clique na conexão à esquerda.").into());
-            return self.conectar(id);
+            return match alvo.1 {
+                None => self.conectar(alvo.0),
+                Some(n) => self.abrir_banco(alvo.0, n),
+            };
         };
         self.executando = true;
         self.erro = None;
@@ -311,7 +367,12 @@ impl App {
 
 impl Item {
     fn novo(id: u64, conexao: Conexao) -> Item {
-        Item { id, conexao, banco: None, senha: None, conectando: false, expandido: false, tabelas: Vec::new(), colunas: HashMap::new(), tabelas_abertas: HashSet::new() }
+        Item { id, conexao, senha: None, principal: Base::default(), bancos: None, bases: HashMap::new() }
+    }
+
+    /// Postgres ou MySQL sem banco escolhido: a árvore mostra os bancos do servidor.
+    fn servidor(&self) -> bool {
+        matches!(self.conexao.tipo, Tipo::Postgres | Tipo::MySql) && self.conexao.banco.trim().is_empty()
     }
 }
 
@@ -347,8 +408,8 @@ impl pelicano::App for App {
                         featherdb_core::cofre::apagar(&i.conexao);
                     }
                     self.itens.retain(|i| i.id != id);
-                    if self.ativa == Some(id) {
-                        self.ativa = self.itens.first().map(|i| i.id);
+                    if self.ativa.as_ref().is_some_and(|a| a.0 == id) {
+                        self.ativa = self.itens.first().map(|i| (i.id, None));
                     }
                     self.gravar_conexoes();
                 }
@@ -380,92 +441,130 @@ impl pelicano::App for App {
                     return self.conectar(id);
                 }
             }
-            Msg::Conectado(id, r) => {
-                let Some(item) = self.item(id) else { return Task::none() };
-                // A conexão foi editada enquanto conectava: a resposta é da configuração antiga.
-                if !item.conectando {
+            Msg::Conectado(alvo, r) => {
+                let Some(item) = self.item(alvo.0) else { return Task::none() };
+                let principal = alvo.1.is_none();
+                let servidor = item.servidor();
+                let Some(base) = (match &alvo.1 {
+                    None => Some(&mut item.principal),
+                    Some(n) => item.bases.get_mut(n),
+                }) else {
+                    return Task::none();
+                };
+                // A conexão foi editada ou desconectada enquanto conectava: a resposta é velha.
+                if !base.conectando {
                     return Task::none();
                 }
-                item.conectando = false;
+                base.conectando = false;
                 match r {
                     Ok(b) => {
+                        base.banco = Some(b);
+                        base.expandido = true;
+                        self.erro = None;
                         // Só guarda a senha depois de ela funcionar.
-                        if let (true, Some(senha)) = (item.conexao.lembrar_senha && App::precisa_senha(&item.conexao), &item.senha) {
-                            if let Err(e) = featherdb_core::cofre::gravar(&item.conexao, senha) {
-                                self.aviso = trf("A senha não foi guardada no cofre do sistema: {}", &[&e]);
+                        if principal {
+                            if let Some(item) = self.itens.iter().find(|i| i.id == alvo.0) {
+                                if let (true, Some(senha)) = (item.conexao.lembrar_senha && App::precisa_senha(&item.conexao), &item.senha) {
+                                    if let Err(e) = featherdb_core::cofre::gravar(&item.conexao, senha) {
+                                        self.aviso = trf("A senha não foi guardada no cofre do sistema: {}", &[&e]);
+                                    }
+                                }
+                            }
+                            if servidor {
+                                return self.carregar_bancos(alvo.0);
                             }
                         }
-                        let Some(item) = self.item(id) else { return Task::none() };
-                        item.banco = Some(b);
-                        item.expandido = true;
-                        self.erro = None;
-                        return self.carregar_tabelas(id);
+                        return self.carregar_tabelas(alvo);
                     }
                     Err(e) => {
+                        let rotulo = item.conexao.rotulo();
+                        let nome = match &alvo.1 {
+                            Some(n) => format!("{rotulo} / {n}"),
+                            None => rotulo,
+                        };
                         // Senha errada: na próxima tentativa pede de novo.
-                        item.senha = None;
-                        self.erro = Some(trf("Não conectou em {}: {}", &[&item.conexao.rotulo(), &e]));
+                        if principal {
+                            item.senha = None;
+                        }
+                        self.erro = Some(trf("Não conectou em {}: {}", &[&nome, &e]));
                     }
                 }
             }
+            Msg::Bancos(id, r) => match r {
+                Ok(v) => {
+                    if let Some(i) = self.item(id) {
+                        i.bancos = Some(v);
+                    }
+                }
+                Err(e) => self.erro = Some(trf("Não foi possível ler os bancos: {}", &[&e])),
+            },
             Msg::Desconectar(id) => {
                 if let Some(i) = self.item(id) {
-                    i.banco = None;
-                    i.tabelas.clear();
-                    i.colunas.clear();
-                    i.tabelas_abertas.clear();
-                    i.expandido = false;
+                    i.principal = Base::default();
+                    i.bases.clear();
+                    i.bancos = None;
                 }
             }
             Msg::Expandir(id) => {
-                self.ativa = Some(id);
+                self.ativa = Some((id, None));
                 let Some(i) = self.item(id) else { return Task::none() };
-                if i.banco.is_none() {
+                if i.principal.banco.is_none() {
                     return self.conectar(id);
                 }
-                i.expandido = !i.expandido;
+                i.principal.expandido = !i.principal.expandido;
             }
-            Msg::Atualizar(id) => {
-                if let Some(i) = self.item(id) {
-                    i.colunas.clear();
-                    i.tabelas_abertas.clear();
+            Msg::ExpandirBanco(id, nome) => {
+                self.ativa = Some((id, Some(nome.clone())));
+                match self.base_mut(&(id, Some(nome.clone()))) {
+                    Some(b) if b.banco.is_some() => b.expandido = !b.expandido,
+                    _ => return self.abrir_banco(id, nome),
                 }
-                return self.carregar_tabelas(id);
             }
-            Msg::Tabelas(id, r) => match r {
+            Msg::Atualizar(alvo) => {
+                if alvo.1.is_none() && self.itens.iter().any(|i| i.id == alvo.0 && i.servidor()) {
+                    return self.carregar_bancos(alvo.0);
+                }
+                if let Some(b) = self.base_mut(&alvo) {
+                    b.colunas.clear();
+                    b.tabelas_abertas.clear();
+                }
+                return self.carregar_tabelas(alvo);
+            }
+            Msg::Tabelas(alvo, r) => match r {
                 Ok(t) => {
-                    if let Some(i) = self.item(id) {
-                        i.tabelas = t;
+                    if let Some(b) = self.base_mut(&alvo) {
+                        b.tabelas = t;
                     }
                 }
                 Err(e) => self.erro = Some(trf("Não foi possível ler as tabelas: {}", &[&e])),
             },
-            Msg::ExpandirTabela(id, t) => {
-                let Some(i) = self.item(id) else { return Task::none() };
-                let chave = t.qualificado(i.conexao.tipo);
-                if !i.tabelas_abertas.remove(&chave) {
-                    i.tabelas_abertas.insert(chave.clone());
-                    if !i.colunas.contains_key(&chave) {
-                        if let Some(banco) = i.banco.clone() {
+            Msg::ExpandirTabela(alvo, t) => {
+                let tipo = self.tipo(alvo.0);
+                let Some(b) = self.base_mut(&alvo) else { return Task::none() };
+                let chave = t.qualificado(tipo);
+                if !b.tabelas_abertas.remove(&chave) {
+                    b.tabelas_abertas.insert(chave.clone());
+                    if !b.colunas.contains_key(&chave) {
+                        if let Some(banco) = b.banco.clone() {
                             return em_segundo_plano(
                                 move || banco.lock().map_err(|_| tr("A conexão travou; desconecte e conecte de novo.").to_owned())?.colunas(&t),
-                                move |r| Msg::Colunas(id, chave, r),
+                                move |r| Msg::Colunas(alvo, chave, r),
                             );
                         }
                     }
                 }
             }
-            Msg::Colunas(id, chave, r) => match r {
+            Msg::Colunas(alvo, chave, r) => match r {
                 Ok(c) => {
-                    if let Some(i) = self.item(id) {
-                        i.colunas.insert(chave, c);
+                    if let Some(b) = self.base_mut(&alvo) {
+                        b.colunas.insert(chave, c);
                     }
                 }
                 Err(e) => self.erro = Some(e),
             },
-            Msg::AbrirTabela(id, t) => {
-                self.ativa = Some(id);
-                let Some(tipo) = self.itens.iter().find(|i| i.id == id).map(|i| i.conexao.tipo) else { return Task::none() };
+            Msg::AbrirTabela(alvo, t) => {
+                let tipo = self.tipo(alvo.0);
+                self.ativa = Some(alvo);
                 // Com LIMIT o banco não manda a tabela inteira (o ODBC fica sem: cada banco escreve de um jeito).
                 let limite = if tipo == Tipo::Odbc { String::new() } else { format!(" LIMIT {LIMITE_LINHAS}") };
                 return self.rodar(vec![format!("SELECT * FROM {}{limite}", t.qualificado(tipo))]);
@@ -477,19 +576,19 @@ impl pelicano::App for App {
                 return self.update(*m);
             }
             Msg::Conectar(id) => return self.conectar(id),
-            Msg::EscreverSelect(id, t) => {
-                let Some(item) = self.itens.iter().find(|i| i.id == id) else { return Task::none() };
-                let tipo = item.conexao.tipo;
-                let colunas = item.colunas.get(&t.qualificado(tipo)).filter(|c| !c.is_empty()).map_or("*".to_owned(), |c| {
+            Msg::EscreverSelect(alvo, t) => {
+                let tipo = self.tipo(alvo.0);
+                let Some(b) = self.base(&alvo) else { return Task::none() };
+                let colunas = b.colunas.get(&t.qualificado(tipo)).filter(|c| !c.is_empty()).map_or("*".to_owned(), |c| {
                     c.iter().map(|(n, _)| featherdb_core::identificador(n, tipo)).collect::<Vec<_>>().join(", ")
                 });
-                self.ativa = Some(id);
+                self.ativa = Some(alvo);
                 self.editor.insert(&format!("SELECT {colunas}\nFROM {}\nWHERE ;\n", t.qualificado(tipo)));
                 self.gravar_rascunho();
             }
-            Msg::Contar(id, t) => {
-                self.ativa = Some(id);
-                let Some(tipo) = self.itens.iter().find(|i| i.id == id).map(|i| i.conexao.tipo) else { return Task::none() };
+            Msg::Contar(alvo, t) => {
+                let tipo = self.tipo(alvo.0);
+                self.ativa = Some(alvo);
                 return self.rodar(vec![format!("SELECT COUNT(*) AS total FROM {}", t.qualificado(tipo))]);
             }
             Msg::CopiarTexto(texto) => {
@@ -664,7 +763,78 @@ impl App {
     }
 
     fn item_ativo(&self) -> Option<&Item> {
-        self.ativa.and_then(|id| self.itens.iter().find(|i| i.id == id))
+        self.ativa.as_ref().and_then(|(id, _)| self.itens.iter().find(|i| i.id == *id))
+    }
+
+    /// As tabelas (e as colunas das abertas) de um banco, com o recuo do nível na árvore.
+    fn arvore_tabelas<'a>(&'a self, alvo: Alvo, base: &'a Base, tipo: Tipo, recuo: f32) -> Vec<Element<'a, Msg>> {
+        let mut saida = Vec::new();
+        // Bancos como o Datasphere têm milhares de visões: o filtro acha, e a árvore mostra no máximo
+        // MAX_ARVORE por banco para a tela continuar leve.
+        let filtro = self.filtro.trim().to_lowercase();
+        let achadas: Vec<&Tabela> = base.tabelas.iter().filter(|t| filtro.is_empty() || t.nome.to_lowercase().contains(&filtro) || t.esquema.to_lowercase().contains(&filtro)).collect();
+        if base.tabelas.is_empty() {
+            saida.push(container(text(tr("nenhuma tabela")).size(12).color(COR_TEXTO_MUTED())).padding(pelicano::Padding { top: 3.0, right: 0.0, bottom: 3.0, left: recuo + 34.0 }).into());
+        }
+        for t in achadas.iter().take(MAX_ARVORE).copied() {
+            let chave = t.qualificado(tipo);
+            let aberta = base.tabelas_abertas.contains(&chave);
+            let nome = if t.esquema.is_empty() || tipo == Tipo::MySql { t.nome.clone() } else { format!("{}.{}", t.esquema, t.nome) };
+            let linha = row![
+                Space::new(recuo + 14.0, 0),
+                icone_tabler(if aberta { SETA_BAIXO } else { SETA_DIREITA }, 12.0).color(COR_TEXTO_MUTED()),
+                if t.visao { icone_tabler(VISAO, 15.0).color(COR_TEXTO_MUTED()) } else { feather_ui::icones::icone_traco("table", 15.0).color(COR_TEXTO_MUTED()) },
+                text(nome).size(12.5).no_wrap().ellipsis(),
+            ]
+            .width(Length::FILL)
+            .spacing(6)
+            .align(Align::Center);
+            let botao = button(linha).padding([4, 6]).width(Length::FILL).style(estilo_botao_pequeno(false)).on_press(Msg::ExpandirTabela(alvo.clone(), t.clone()));
+            let (a2, tab) = (alvo.clone(), t.clone());
+            let botao = mouse_area(botao).on_double_click(Msg::AbrirTabela(alvo.clone(), t.clone())).on_right_press_at(move |p| Msg::AbrirMenu(Menu::Tabela(a2.clone(), tab.clone()), p));
+            saida.push(tooltip(botao, tr("Clique duplo mostra os dados"), TooltipPosition::Right).padding([4, 8]).style(estilo_dica).into());
+            if aberta {
+                for (nome, tipo_col) in base.colunas.get(&chave).map(Vec::as_slice).unwrap_or_default() {
+                    saida.push(
+                        row![
+                            Space::new(recuo + 48.0, 0),
+                            text(nome.as_str()).size(12).no_wrap().ellipsis(),
+                            horizontal_space(),
+                            text(tipo_col.to_lowercase()).size(11).font(Font::MONO).color(COR_TEXTO_MUTED()).no_wrap(),
+                        ]
+                        .spacing(6)
+                        .align(Align::Center)
+                        .padding([3, 10])
+                        .into(),
+                    );
+                }
+            }
+        }
+        if achadas.len() > MAX_ARVORE {
+            let resto = achadas.len() - MAX_ARVORE;
+            saida.push(container(text(trf("mais {}; use o filtro para achar", &[&resto])).size(12).color(COR_TEXTO_MUTED())).padding([4, 24]).into());
+        }
+        saida
+    }
+
+    /// Um banco do servidor na árvore (conexão sem banco escolhido).
+    fn linha_banco<'a>(&'a self, item: &'a Item, nome: &'a str) -> Element<'a, Msg> {
+        let base = item.bases.get(nome);
+        let aberto = base.is_some_and(|b| b.banco.is_some() && b.expandido);
+        let ativo = self.ativa.as_ref().is_some_and(|(id, b)| *id == item.id && b.as_deref() == Some(nome));
+        let mut linha = row![
+            Space::new(6, 0),
+            icone_tabler(if aberto { SETA_BAIXO } else { SETA_DIREITA }, 12.0).color(COR_TEXTO_MUTED()),
+            icone_tabler(BANCO, 15.0).color(if base.is_some_and(|b| b.banco.is_some()) { COR_AZUL_ACENTO() } else { COR_TEXTO_MUTED() }),
+            text(nome.to_owned()).size(12.5).font(if ativo { Font::SEMIBOLD } else { Font::DEFAULT }).no_wrap().ellipsis().width(Length::FILL),
+        ]
+        .width(Length::FILL)
+        .spacing(6)
+        .align(Align::Center);
+        if base.is_some_and(|b| b.conectando) {
+            linha = linha.push(text(tr("conectando…")).size(11).color(COR_TEXTO_MUTED()));
+        }
+        button(linha).padding([4, 6]).width(Length::FILL).style(estilo_botao_pequeno(ativo)).on_press(Msg::ExpandirBanco(item.id, nome.to_owned())).into()
     }
 
     /// A árvore: conexões › tabelas › colunas.
@@ -683,56 +853,35 @@ impl App {
         }
         for item in &self.itens {
             lista = lista.push(self.linha_conexao(item));
-            if !item.expandido || item.banco.is_none() {
+            if !item.principal.expandido || item.principal.banco.is_none() {
                 continue;
             }
-            // Bancos como o Datasphere têm milhares de visões: o filtro acha, e a árvore mostra no máximo
-            // MAX_ARVORE por conexão para a tela continuar leve.
-            let filtro = self.filtro.trim().to_lowercase();
-            let achadas: Vec<&Tabela> = item.tabelas.iter().filter(|t| filtro.is_empty() || t.nome.to_lowercase().contains(&filtro) || t.esquema.to_lowercase().contains(&filtro)).collect();
-            for t in achadas.iter().take(MAX_ARVORE).copied() {
-                let chave = t.qualificado(item.conexao.tipo);
-                let aberta = item.tabelas_abertas.contains(&chave);
-                let nome = if t.esquema.is_empty() || item.conexao.tipo == Tipo::MySql { t.nome.clone() } else { format!("{}.{}", t.esquema, t.nome) };
-                let linha = row![
-                    Space::new(14, 0),
-                    icone_tabler(if aberta { SETA_BAIXO } else { SETA_DIREITA }, 12.0).color(COR_TEXTO_MUTED()),
-                    if t.visao { icone_tabler(VISAO, 15.0).color(COR_TEXTO_MUTED()) } else { feather_ui::icones::icone_traco("table", 15.0).color(COR_TEXTO_MUTED()) },
-                    text(nome).size(12.5).no_wrap().ellipsis(),
-                ]
-                .width(Length::FILL)
-                .spacing(6)
-                .align(Align::Center);
-                let botao = button(linha).padding([4, 6]).width(Length::FILL).style(estilo_botao_pequeno(false)).on_press(Msg::ExpandirTabela(item.id, t.clone()));
-                let (id, tab) = (item.id, t.clone());
-                let botao = mouse_area(botao).on_double_click(Msg::AbrirTabela(item.id, t.clone())).on_right_press_at(move |p| Msg::AbrirMenu(Menu::Tabela(id, tab.clone()), p));
-                lista = lista.push(tooltip(botao, tr("Clique duplo mostra os dados"), TooltipPosition::Right).padding([4, 8]).style(estilo_dica));
-                if aberta {
-                    for (nome, tipo) in item.colunas.get(&chave).map(Vec::as_slice).unwrap_or_default() {
-                        lista = lista.push(
-                            row![
-                                Space::new(48, 0),
-                                text(nome.as_str()).size(12).no_wrap().ellipsis(),
-                                horizontal_space(),
-                                text(tipo.to_lowercase()).size(11).font(Font::MONO).color(COR_TEXTO_MUTED()).no_wrap(),
-                            ]
-                            .spacing(6)
-                            .align(Align::Center)
-                            .padding([3, 10]),
-                        );
+            let tipo = item.conexao.tipo;
+            match &item.bancos {
+                Some(bancos) => {
+                    for nome in bancos {
+                        lista = lista.push(self.linha_banco(item, nome));
+                        if let Some(b) = item.bases.get(nome).filter(|b| b.expandido && b.banco.is_some()) {
+                            for e in self.arvore_tabelas((item.id, Some(nome.clone())), b, tipo, 14.0) {
+                                lista = lista.push(e);
+                            }
+                        }
                     }
                 }
-            }
-            if achadas.len() > MAX_ARVORE {
-                let resto = achadas.len() - MAX_ARVORE;
-                lista = lista.push(container(text(trf("mais {}; use o filtro para achar", &[&resto])).size(12).color(COR_TEXTO_MUTED())).padding([4, 24]));
+                None if item.servidor() => lista = lista.push(container(text(tr("lendo os bancos…")).size(12).color(COR_TEXTO_MUTED())).padding([3, 40])),
+                None => {
+                    for e in self.arvore_tabelas((item.id, None), &item.principal, tipo, 0.0) {
+                        lista = lista.push(e);
+                    }
+                }
             }
         }
         // As ações valem para a conexão ativa (a destacada na lista).
         let mut topo = row![text(tr("Conexões")).size(12).font(Font::SEMIBOLD).color(COR_TEXTO_MUTED()), horizontal_space()].spacing(0).align(Align::Center);
         if let Some(item) = self.item_ativo() {
-            if item.banco.is_some() {
-                topo = topo.push(acao_pequena(feather_ui::icones::icone_traco("refresh", 15.0), tr("Atualizar tabelas"), Some(Msg::Atualizar(item.id))));
+            if item.principal.banco.is_some() {
+                let alvo = self.ativa.clone().unwrap_or((item.id, None));
+                topo = topo.push(acao_pequena(feather_ui::icones::icone_traco("refresh", 15.0), tr("Atualizar tabelas"), Some(Msg::Atualizar(alvo))));
                 topo = topo.push(acao_pequena(icone_tabler(DESCONECTAR, 15.0), tr("Desconectar"), Some(Msg::Desconectar(item.id))));
             }
             topo = topo.push(acao_pequena(feather_ui::icones::icone_traco("pencil", 15.0), tr("Editar conexão"), Some(Msg::Editar(item.id))));
@@ -742,7 +891,7 @@ impl App {
             .push(acao_pequena(feather_ui::icones::icone_traco("plus", 16.0), tr("Nova conexão"), Some(Msg::Nova)))
             .padding(pelicano::Padding { top: 10.0, right: 8.0, bottom: 6.0, left: 14.0 });
         // O filtro só aparece quando há tabelas para filtrar.
-        let filtro: Element<'_, Msg> = if self.itens.iter().any(|i| !i.tabelas.is_empty()) {
+        let filtro: Element<'_, Msg> = if self.itens.iter().any(|i| !i.principal.tabelas.is_empty() || i.bases.values().any(|b| !b.tabelas.is_empty())) {
             container(pelicano::text_input(tr("Filtrar tabelas"), self.filtro.as_str()).on_input(Msg::Filtro).padding([6, 10]).size(12.5)).padding(pelicano::Padding { top: 0.0, right: 10.0, bottom: 8.0, left: 10.0 }).into()
         } else {
             Space::new(0, 0).into()
@@ -755,10 +904,10 @@ impl App {
     }
 
     fn linha_conexao<'a>(&'a self, item: &'a Item) -> Element<'a, Msg> {
-        let ativa = self.ativa == Some(item.id);
-        let (estado, ligada) = if item.conectando {
+        let ativa = self.ativa == Some((item.id, None));
+        let (estado, ligada) = if item.principal.conectando {
             (tr("conectando…"), false)
-        } else if item.banco.is_some() {
+        } else if item.principal.banco.is_some() {
             (tr("conectada"), true)
         } else {
             (tr("desconectada"), false)
@@ -808,7 +957,13 @@ impl App {
     fn cabecalho_editor(&self) -> Element<'_, Msg> {
         let pode = !self.executando;
         let onde: Element<'_, Msg> = match self.item_ativo() {
-            Some(i) => row![selo(i.conexao.tipo), text(i.conexao.rotulo()).size(13).font(Font::SEMIBOLD)].spacing(8).align(Align::Center).into(),
+            Some(i) => {
+                let banco = self.ativa.as_ref().and_then(|a| a.1.clone()).unwrap_or_default();
+                row![selo(i.conexao.tipo), text(i.conexao.rotulo()).size(13).font(Font::SEMIBOLD), text(if banco.is_empty() { String::new() } else { format!("/ {banco}") }).size(13).color(COR_TEXTO_MUTED())]
+                    .spacing(8)
+                    .align(Align::Center)
+                    .into()
+            }
             None => text(tr("Nenhuma conexão escolhida")).size(13).color(COR_TEXTO_MUTED()).into(),
         };
         let executar = button(
@@ -870,8 +1025,8 @@ impl App {
 
     fn rodape(&self) -> Element<'_, Msg> {
         let estado = match self.item_ativo() {
-            Some(i) if i.banco.is_some() => trf("Conectado a {} · {}", &[&i.conexao.rotulo(), &i.conexao.tipo.nome()]),
-            Some(i) if i.conectando => trf("Conectando a {}…", &[&i.conexao.rotulo()]),
+            Some(i) if i.principal.banco.is_some() => trf("Conectado a {} · {}", &[&i.conexao.rotulo(), &i.conexao.tipo.nome()]),
+            Some(i) if i.principal.conectando => trf("Conectando a {}…", &[&i.conexao.rotulo()]),
             _ => tr("Sem conexão").to_owned(),
         };
         let linha = row![text(estado).size(12).color(COR_TEXTO_MUTED()), Space::new(16, 0), text(self.aviso.as_str()).size(12)].align(Align::Center).padding([0, 14]);
@@ -894,23 +1049,23 @@ impl App {
             Menu::Conexao(id) => {
                 let id = *id;
                 let Some(i) = self.itens.iter().find(|i| i.id == id) else { return base };
-                let ligada = i.banco.is_some();
+                let ligada = i.principal.banco.is_some();
                 lista = lista
                     .push(if ligada { item(icone_tabler(DESCONECTAR, 16.0), tr("Desconectar"), Some(Msg::Desconectar(id))) } else { item(traco("player-play"), tr("Conectar"), Some(Msg::Conectar(id))) })
-                    .push(item(traco("refresh"), tr("Atualizar tabelas"), ligada.then_some(Msg::Atualizar(id))))
+                    .push(item(traco("refresh"), tr("Atualizar tabelas"), ligada.then_some(Msg::Atualizar((id, None)))))
                     .push(separador())
                     .push(item(traco("pencil"), tr("Editar conexão"), Some(Msg::Editar(id))))
                     .push(item(traco("trash"), tr("Excluir conexão"), Some(Msg::Excluir(id))));
             }
-            Menu::Tabela(id, t) => {
-                let (id, tipo) = (*id, self.itens.iter().find(|i| i.id == *id).map_or(Tipo::Postgres, |i| i.conexao.tipo));
-                let aberta = self.itens.iter().any(|i| i.id == id && i.tabelas_abertas.contains(&t.qualificado(tipo)));
+            Menu::Tabela(alvo, t) => {
+                let (id, tipo) = (alvo.clone(), self.tipo(alvo.0));
+                let aberta = self.base(alvo).is_some_and(|b| b.tabelas_abertas.contains(&t.qualificado(tipo)));
                 lista = lista
-                    .push(item(traco("player-play"), tr("Ver os dados (SELECT *)"), Some(Msg::AbrirTabela(id, t.clone()))))
-                    .push(item(traco("pencil"), tr("Escrever o SELECT no editor"), Some(Msg::EscreverSelect(id, t.clone()))))
-                    .push(item(traco("math-function"), tr("Contar as linhas (COUNT)"), Some(Msg::Contar(id, t.clone()))))
+                    .push(item(traco("player-play"), tr("Ver os dados (SELECT *)"), Some(Msg::AbrirTabela(id.clone(), t.clone()))))
+                    .push(item(traco("pencil"), tr("Escrever o SELECT no editor"), Some(Msg::EscreverSelect(id.clone(), t.clone()))))
+                    .push(item(traco("math-function"), tr("Contar as linhas (COUNT)"), Some(Msg::Contar(id.clone(), t.clone()))))
                     .push(separador())
-                    .push(item(traco("columns"), if aberta { tr("Esconder as colunas") } else { tr("Mostrar as colunas") }, Some(Msg::ExpandirTabela(id, t.clone()))))
+                    .push(item(traco("columns"), if aberta { tr("Esconder as colunas") } else { tr("Mostrar as colunas") }, Some(Msg::ExpandirTabela(id.clone(), t.clone()))))
                     .push(item(traco("copy"), tr("Copiar o nome"), Some(Msg::CopiarTexto(t.qualificado(tipo)))));
             }
         }

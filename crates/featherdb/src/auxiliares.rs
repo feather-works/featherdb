@@ -57,6 +57,7 @@ pub(crate) static VERSOES: [novidades::Versao; 1] = [novidades::Versao {
         "Interface em português, inglês e espanhol.",
         "Filtro na árvore para bancos com milhares de tabelas.",
         "Menu do botão direito nas tabelas e nas conexões (SELECT, COUNT, editar).",
+        "Sem banco escolhido, a árvore lista os bancos do servidor (Postgres e MySQL).",
         "Cole o endereço postgresql:// ou mysql:// e a conexão se preenche sozinha.",
     ],
 }];
