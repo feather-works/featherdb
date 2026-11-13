@@ -5,7 +5,8 @@ outro projeto) e `../feather-ui-pelicano/GUIA-JANELAS.md` (ícones só Tabler, c
 `feather_ui::tema`, nada de emoji).
 
 - Cliente de banco de dados leve (a ideia do DBeaver), criado em 04/11/2026 a pedido do usuário.
-- Interface em **pelicano** + `feather-ui` (tags publicadas, sem `[patch]`).
+- Interface em **pelicano** 0.1.34 (crates.io) + `feather-ui` v0.3.16 (tag), sem `[patch]`. Com o pelicano 0.1.34
+  (12/11/2026), em placa de vídeo sem Vulkan/OpenGL utilizável a janela abre desenhada pela CPU.
 - `featherdb-core`: conexões (`Conexao`, `ler_conexoes`/`gravar_conexoes`), o trait `Banco` e os drivers:
   Postgres (`postgres`, protocolo simples: tudo vem como texto; TLS com rustls), MySQL (`mysql`, 100% Rust),
   SQLite (`rusqlite` com o C embutido, exceção à regra "sem C" aceita pelo usuário) e ODBC
