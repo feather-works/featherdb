@@ -79,7 +79,7 @@ fn montar() -> Catalogo {
                     t("Se a conexão caiu (servidor reiniciou, computador ficou parado), ela é refeita sozinha. Uma consulta de leitura roda de novo; um comando que muda dados não, para não rodar duas vezes."),
                 ]),
                 topico("transacoes", "Transações, só leitura e produção", vec![
-                    t("Auto-commit grava cada comando na hora. Clique nele, na faixa do editor, para passar ao Commit manual: as mudanças só ficam depois do Commit, e Rollback desfaz tudo desde o último."),
+                    t("Auto-commit grava cada comando na hora. Clique nele, na faixa do editor, para passar ao Commit manual: as mudanças só ficam depois do Commit, e Rollback desfaz tudo desde o último. Fechar o app ou desconectar com mudanças sem Commit pede confirmação antes; salvar células e importar CSV esperam o Commit ou o Rollback."),
                     t("Só leitura (na conexão): o próprio banco recusa INSERT, UPDATE, DELETE e DDL. Bom para consultar produção sem medo."),
                     t("Produção (na conexão): a conexão ganha a marca vermelha e todo comando que muda dados pede confirmação antes de rodar."),
                 ]),

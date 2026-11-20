@@ -108,6 +108,7 @@ enum Msg {
     Excluir(u64),
     ConfirmarExclusao(bool),
     ConfirmarPerigo(bool),
+    ConfirmarSair(bool),
     Filtro(String),
     /// Abrir o diagrama do banco, a leitura dele (Some com Some) ou fechar (None).
     AbrirDiagrama(Alvo),
@@ -248,6 +249,8 @@ struct App {
     ddl_em: Option<Alvo>,
     /// Esta consulta abriu a transação do commit manual (se falhar, ela foi desfeita e fecha).
     transacao_nova: Option<Alvo>,
+    /// Fechar a janela (None) ou desconectar (Some) com transação aberta: espera a confirmação.
+    sair_com_transacao: Option<Option<u64>>,
     /// Renomeando uma tabela: onde, qual e o nome novo digitado.
     renomear: Option<(Alvo, Tabela, String)>,
     /// Pedindo confirmação para apagar (DROP) uma tabela ou view.
@@ -355,6 +358,7 @@ impl App {
             cancelar: None,
             ddl_em: None,
             transacao_nova: None,
+            sair_com_transacao: None,
             renomear: None,
             apagar: None,
             importacao: None,
@@ -420,6 +424,15 @@ impl App {
             Tipo::Odbc | Tipo::MongoDb => !c.usuario.is_empty(),
             Tipo::Sqlite => false,
         }
+    }
+
+    fn desconectar(&mut self, id: u64) -> Task<Msg> {
+        if let Some(i) = self.item(id) {
+            i.principal = Base::default();
+            i.bases.clear();
+            i.bancos = None;
+        }
+        Task::none()
     }
 
     fn conectar(&mut self, id: u64) -> Task<Msg> {
@@ -702,6 +715,11 @@ impl Item {
         Item { id, conexao, senha: None, principal: Base::default(), bancos: None, bases: HashMap::new(), manual: false }
     }
 
+    /// Alguma base desta conexão tem transação aberta (mudanças ainda sem Commit).
+    fn tem_transacao(&self) -> bool {
+        self.principal.transacao || self.bases.values().any(|b| b.transacao)
+    }
+
     /// Postgres ou MySQL sem banco escolhido: a árvore mostra os bancos do servidor.
     fn servidor(&self) -> bool {
         matches!(self.conexao.tipo, Tipo::Postgres | Tipo::MySql | Tipo::MongoDb) && self.conexao.banco.trim().is_empty()
@@ -721,6 +739,10 @@ impl pelicano::App for App {
             Msg::Puxar(d) => return Task::window(WindowCmd::DragResize(d)),
             Msg::Maximizada(m) => self.maximizada = m,
             Msg::Fechar => {
+                if self.itens.iter().any(Item::tem_transacao) {
+                    self.sair_com_transacao = Some(None);
+                    return Task::none();
+                }
                 self.gravar_rascunho();
                 return Task::window(WindowCmd::Close);
             }
@@ -850,12 +872,20 @@ impl pelicano::App for App {
                 Err(e) => self.erro = Some(trf("Não foi possível ler os bancos: {}", &[&e])),
             },
             Msg::Desconectar(id) => {
-                if let Some(i) = self.item(id) {
-                    i.principal = Base::default();
-                    i.bases.clear();
-                    i.bancos = None;
+                if self.itens.iter().any(|i| i.id == id && i.tem_transacao()) {
+                    self.sair_com_transacao = Some(Some(id));
+                    return Task::none();
                 }
+                return self.desconectar(id);
             }
+            Msg::ConfirmarSair(sim) => match (sim, self.sair_com_transacao.take()) {
+                (true, Some(None)) => {
+                    self.gravar_rascunho();
+                    return Task::window(WindowCmd::Close);
+                }
+                (true, Some(Some(id))) => return self.desconectar(id),
+                _ => {}
+            },
             Msg::Expandir(id) => {
                 self.ativa = Some((id, None));
                 let Some(i) = self.item(id) else { return Task::none() };
@@ -1370,8 +1400,9 @@ impl pelicano::App for App {
         if self.celulas.editando.is_some() && matches!(key, Key::Named(NamedKey::Escape)) {
             return Some(Msg::Celula(celulas::AcaoCelula::Cancelar));
         }
-        if self.pedir_senha.is_some() || self.form.is_some() || self.excluir.is_some() || self.perigo.is_some() {
+        if self.pedir_senha.is_some() || self.form.is_some() || self.excluir.is_some() || self.perigo.is_some() || self.sair_com_transacao.is_some() {
             return matches!(key, Key::Named(NamedKey::Escape)).then(|| match () {
+                _ if self.sair_com_transacao.is_some() => Msg::ConfirmarSair(false),
                 _ if self.perigo.is_some() => Msg::ConfirmarPerigo(false),
                 _ if self.pedir_senha.is_some() => Msg::ConfirmarSenha(false),
                 _ if self.excluir.is_some() => Msg::ConfirmarExclusao(false),
@@ -1462,6 +1493,18 @@ impl pelicano::App for App {
                 .ao_fechar(Msg::ConfirmarSenha(false))
                 .secundario(tr("Cancelar"), Some(Msg::ConfirmarSenha(false)))
                 .primario(tr("Conectar"), Some(Msg::ConfirmarSenha(true)))
+                .sobre(janela);
+        }
+        if let Some(alvo) = self.sair_com_transacao {
+            let nomes: Vec<String> = self.itens.iter().filter(|i| i.tem_transacao() && alvo.is_none_or(|id| id == i.id)).map(|i| i.conexao.rotulo()).collect();
+            let corpo = text(trf("Há mudanças sem Commit em {}. Se continuar, o banco desfaz essas mudanças.", &[&nomes.join(", ")])).size(13);
+            let botao = if alvo.is_none() { tr("Fechar e desfazer") } else { tr("Desconectar e desfazer") };
+            return feather_ui::dialogo::Dialogo::new(tr("Transação aberta"), corpo)
+                .icone("alert-triangle")
+                .largura(460.0)
+                .ao_fechar(Msg::ConfirmarSair(false))
+                .secundario(tr("Cancelar"), Some(Msg::ConfirmarSair(false)))
+                .primario(botao, Some(Msg::ConfirmarSair(true)))
                 .sobre(janela);
         }
         if let Some((comandos, palavra)) = &self.perigo {

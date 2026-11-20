@@ -438,7 +438,7 @@
  "Parâmetros :nome perguntados antes de rodar; Ctrl+/ comenta a linha; trocar o * pelas colunas.": ":name parameters asked before running; Ctrl+/ comments the line; replace * with the columns.",
  "Diagrama das tabelas com as chaves estrangeiras e sessões ativas do servidor.": "Table diagram with foreign keys, and the server's active sessions.",
  "Transações, só leitura e produção": "Transactions, read-only and production",
- "Auto-commit grava cada comando na hora. Clique nele, na faixa do editor, para passar ao Commit manual: as mudanças só ficam depois do Commit, e Rollback desfaz tudo desde o último.": "Auto-commit saves each command right away. Click it, in the editor bar, to switch to Manual commit: changes only stay after Commit, and Rollback undoes everything since the last one.",
+ "Auto-commit grava cada comando na hora. Clique nele, na faixa do editor, para passar ao Commit manual: as mudanças só ficam depois do Commit, e Rollback desfaz tudo desde o último. Fechar o app ou desconectar com mudanças sem Commit pede confirmação antes; salvar células e importar CSV esperam o Commit ou o Rollback.": "Auto-commit saves each command right away. Click it, in the editor bar, to switch to Manual commit: changes only stay after Commit, and Rollback undoes everything since the last one. Closing the app or disconnecting with uncommitted changes asks first; saving cells and importing CSV wait for the Commit or Rollback.",
  "Só leitura (na conexão): o próprio banco recusa INSERT, UPDATE, DELETE e DDL. Bom para consultar produção sem medo.": "Read-only (on the connection): the database itself refuses INSERT, UPDATE, DELETE and DDL. Good for querying production without fear.",
  "Produção (na conexão): a conexão ganha a marca vermelha e todo comando que muda dados pede confirmação antes de rodar.": "Production (on the connection): the connection gets a red tag and every command that changes data asks for confirmation before running.",
  "Parâmetros e atalhos do editor": "Parameters and editor shortcuts",
@@ -463,5 +463,9 @@
  "Botão direito na conexão ou no banco › Diagrama das tabelas: uma caixa por tabela com as colunas e uma linha de cada chave estrangeira até a tabela que ela aponta.": "Right-click the connection or the database › Table diagram: one box per table with its columns and a line from each foreign key to the table it points to.",
  "Sessões ativas (PostgreSQL e MySQL) abre uma aba com quem está conectado e o que está rodando. O comentário no alto da aba diz como derrubar uma sessão.": "Active sessions (PostgreSQL and MySQL) opens a tab with who is connected and what is running. The comment at the top of the tab says how to kill a session.",
  "A conexão caiu e foi refeita. A transação aberta se perdeu: o que não tinha sido confirmado não foi gravado.": "The connection dropped and was reopened. The open transaction was lost: what had not been committed was not saved.",
- "Há uma transação aberta nesta conexão: confirme ou desfaça antes de gravar.": "There is an open transaction on this connection: commit or roll it back before saving."
+ "Há uma transação aberta nesta conexão: confirme ou desfaça antes de gravar.": "There is an open transaction on this connection: commit or roll it back before saving.",
+ "Há mudanças sem Commit em {}. Se continuar, o banco desfaz essas mudanças.": "There are uncommitted changes in {}. If you continue, the database rolls them back.",
+ "Fechar e desfazer": "Close and roll back",
+ "Desconectar e desfazer": "Disconnect and roll back",
+ "Transação aberta": "Open transaction"
 }
