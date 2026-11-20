@@ -461,5 +461,7 @@
  "As colunas do arquivo entram nas colunas da tabela com o mesmo nome. Tudo roda numa transação: se uma linha falhar, nenhuma fica.": "Las columnas del archivo entran en las columnas de la tabla con el mismo nombre. Todo corre en una transacción: si una fila falla, ninguna queda.",
  "Diagrama e sessões ativas": "Diagrama y sesiones activas",
  "Botão direito na conexão ou no banco › Diagrama das tabelas: uma caixa por tabela com as colunas e uma linha de cada chave estrangeira até a tabela que ela aponta.": "Clic derecho en la conexión o en la base › Diagrama de tablas: una caja por tabla con sus columnas y una línea de cada clave foránea hasta la tabla a la que apunta.",
- "Sessões ativas (PostgreSQL e MySQL) abre uma aba com quem está conectado e o que está rodando. O comentário no alto da aba diz como derrubar uma sessão.": "Sesiones activas (PostgreSQL y MySQL) abre una pestaña con quién está conectado y qué se está ejecutando. El comentario arriba de la pestaña dice cómo terminar una sesión."
+ "Sessões ativas (PostgreSQL e MySQL) abre uma aba com quem está conectado e o que está rodando. O comentário no alto da aba diz como derrubar uma sessão.": "Sesiones activas (PostgreSQL y MySQL) abre una pestaña con quién está conectado y qué se está ejecutando. El comentario arriba de la pestaña dice cómo terminar una sesión.",
+ "A conexão caiu e foi refeita. A transação aberta se perdeu: o que não tinha sido confirmado não foi gravado.": "La conexión se cayó y se rehízo. La transacción abierta se perdió: lo que no se había confirmado no se guardó.",
+ "Há uma transação aberta nesta conexão: confirme ou desfaça antes de gravar.": "Hay una transacción abierta en esta conexión: confírmela o deshágala antes de guardar."
 }

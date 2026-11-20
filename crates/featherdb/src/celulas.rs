@@ -48,6 +48,9 @@ pub(crate) enum AcaoCelula {
     Confirmar(bool),
 }
 
+/// Gravar células ou importar com transação aberta confirmaria junto o que ainda está pendente.
+pub(crate) const TRANSACAO_ABERTA: &str = "Há uma transação aberta nesta conexão: confirme ou desfaça antes de gravar.";
+
 impl App {
     /// As colunas da chave primária no resultado, quando a grade mostra uma tabela que dá para editar.
     pub(crate) fn chaves_editaveis(&self) -> Option<Vec<usize>> {
@@ -174,6 +177,11 @@ impl App {
             }
             AcaoCelula::Salvar => {
                 self.guardar_celula();
+                // O BEGIN … COMMIT do salvar confirmaria junto o que está pendente na transação aberta.
+                if self.tabela_aberta.as_ref().and_then(|(a, _)| self.base(a)).is_some_and(|b| b.transacao) {
+                    self.aviso = tr(TRANSACAO_ABERTA).to_owned();
+                    return Task::none();
+                }
                 match self.sql_das_mudancas() {
                     Ok(sql) if !sql.is_empty() => self.celulas.confirmar = Some(sql),
                     Ok(_) => {}

@@ -461,5 +461,7 @@
  "As colunas do arquivo entram nas colunas da tabela com o mesmo nome. Tudo roda numa transação: se uma linha falhar, nenhuma fica.": "The file's columns go into the table columns with the same name. Everything runs in one transaction: if one row fails, none stay.",
  "Diagrama e sessões ativas": "Diagram and active sessions",
  "Botão direito na conexão ou no banco › Diagrama das tabelas: uma caixa por tabela com as colunas e uma linha de cada chave estrangeira até a tabela que ela aponta.": "Right-click the connection or the database › Table diagram: one box per table with its columns and a line from each foreign key to the table it points to.",
- "Sessões ativas (PostgreSQL e MySQL) abre uma aba com quem está conectado e o que está rodando. O comentário no alto da aba diz como derrubar uma sessão.": "Active sessions (PostgreSQL and MySQL) opens a tab with who is connected and what is running. The comment at the top of the tab says how to kill a session."
+ "Sessões ativas (PostgreSQL e MySQL) abre uma aba com quem está conectado e o que está rodando. O comentário no alto da aba diz como derrubar uma sessão.": "Active sessions (PostgreSQL and MySQL) opens a tab with who is connected and what is running. The comment at the top of the tab says how to kill a session.",
+ "A conexão caiu e foi refeita. A transação aberta se perdeu: o que não tinha sido confirmado não foi gravado.": "The connection dropped and was reopened. The open transaction was lost: what had not been committed was not saved.",
+ "Há uma transação aberta nesta conexão: confirme ou desfaça antes de gravar.": "There is an open transaction on this connection: commit or roll it back before saving."
 }

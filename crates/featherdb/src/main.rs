@@ -461,7 +461,14 @@ impl App {
     /// A resposta de uma consulta da aba da tela.
     fn executado(&mut self, r: Result<Resultado, String>, t: Duration, nova: bool) -> Task<Msg> {
         if nova {
-            self.aviso = tr("A conexão tinha caído e foi refeita.").to_owned();
+            // A transação aberta morreu com a conexão velha: o COMMIT depois não gravaria nada.
+            let perdeu = self.ativa.clone().and_then(|a| self.base_mut(&a)).is_some_and(|b| std::mem::take(&mut b.transacao));
+            self.aviso = if perdeu {
+                tr("A conexão caiu e foi refeita. A transação aberta se perdeu: o que não tinha sido confirmado não foi gravado.")
+            } else {
+                tr("A conexão tinha caído e foi refeita.")
+            }
+            .to_owned();
         }
         self.cancelar = None;
         self.executando = false;

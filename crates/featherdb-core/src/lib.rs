@@ -505,11 +505,22 @@ pub fn sem_where(sql: &str) -> Option<&'static str> {
                 }
                 i += 1;
             }
+            b'(' => limpo.push_str(" ( "),
+            b')' => limpo.push_str(" ) "),
             c => limpo.push(if c.is_ascii_alphanumeric() || c == b'_' { c.to_ascii_lowercase() as char } else { ' ' }),
         }
         i += 1;
     }
-    let palavras: Vec<&str> = limpo.split_whitespace().collect();
+    // Só vale o que está fora de parênteses: o WHERE de uma subconsulta não limita o UPDATE.
+    let mut nivel = 0usize;
+    let palavras: Vec<&str> = limpo
+        .split_whitespace()
+        .filter(|p| match *p {
+            "(" => { nivel += 1; false }
+            ")" => { nivel = nivel.saturating_sub(1); false }
+            _ => nivel == 0,
+        })
+        .collect();
     // `WITH x AS (...) DELETE ...`: vale o primeiro DELETE/UPDATE depois do WITH.
     let comando = match palavras.first() {
         Some(&"with") => palavras.iter().find(|p| matches!(**p, "delete" | "update")).copied(),
@@ -817,6 +828,9 @@ mod testes {
         assert_eq!(sem_where("UPDATE t SET a = 1\nWHERE id = 2"), None);
         assert_eq!(sem_where("SELECT * FROM t"), None);
         assert_eq!(sem_where("/* x */ delete from t"), Some("DELETE"));
+        assert_eq!(sem_where("UPDATE t SET a = (SELECT b FROM u WHERE u.id = 1)"), Some("UPDATE"));
+        assert_eq!(sem_where("DELETE FROM t WHERE id IN (SELECT id FROM u WHERE x)"), None);
+        assert_eq!(sem_where("WITH x AS (SELECT 1 FROM u WHERE y) UPDATE t SET a = 1"), Some("UPDATE"));
     }
 
     #[test]

@@ -62,6 +62,10 @@ impl App {
                 if !sim {
                     return Task::none();
                 }
+                if self.base(&imp.alvo).is_some_and(|b| b.transacao) {
+                    self.aviso = tr(crate::celulas::TRANSACAO_ABERTA).to_owned();
+                    return Task::none();
+                }
                 let tipo = self.tipo(imp.alvo.0);
                 let mapa = self.mapa(&imp);
                 let inserts = featherdb_core::importar::sql_importar(tipo, &imp.tabela.qualificado(tipo), &mapa, &imp.linhas, 200);
