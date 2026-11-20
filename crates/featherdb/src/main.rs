@@ -188,6 +188,8 @@ enum Msg {
     ExportarPara(Option<std::path::PathBuf>),
     FiltroGrade(String),
     Copiar,
+    AbrirNaPlanilha,
+    AbertoNaPlanilha(Result<(), String>),
     ExportarCsv,
     Exportado(Option<Result<std::path::PathBuf, String>>),
 }
@@ -282,6 +284,30 @@ struct App {
 /// Roda `f` numa thread do tokio que pode bloquear (driver de banco) e manda o resultado.
 fn em_segundo_plano<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static, msg: impl FnOnce(T) -> Msg + Send + 'static) -> Task<Msg> {
     Task::perform(async move { tokio::task::spawn_blocking(f).await.expect("tarefa de banco") }, msg)
+}
+
+/// O FeatherSheet instalado: no Windows, a pasta do instalador; senão, pelo PATH (deb, ~/.local/bin, snap).
+fn programa_planilha() -> Option<std::path::PathBuf> {
+    let pastas = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).unwrap_or_default();
+    let nome = if cfg!(windows) { "feathersheet.exe" } else { "feathersheet" };
+    let instalado = std::env::var_os("ProgramW6432").map(|p| std::path::PathBuf::from(p).join("FeatherWorks").join("FeatherSheet"));
+    instalado.into_iter().chain(pastas).map(|p| p.join(nome)).find(|p| p.is_file())
+}
+
+/// Grava o resultado num CSV e abre no FeatherSheet. O snap tem `/tmp` próprio e não lê pasta oculta:
+/// para ele o arquivo vai para `~/FeatherDB`.
+fn abrir_na_planilha(csv: &str) -> Result<(), String> {
+    let programa = programa_planilha().ok_or_else(|| tr("O FeatherSheet não foi encontrado. Instale pelo site da FeatherWorks ou use Copiar tudo.").to_owned())?;
+    let pasta = match std::env::var_os("HOME") {
+        Some(h) if programa.starts_with("/snap") => std::path::PathBuf::from(h).join("FeatherDB"),
+        _ => std::env::temp_dir().join("featherdb"),
+    };
+    std::fs::create_dir_all(&pasta).map_err(|e| e.to_string())?;
+    let segundos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let arquivo = pasta.join(format!("resultado-{segundos}.csv"));
+    // BOM: o separador e os acentos são lidos como UTF-8 também no Excel, se o CSV for parar lá.
+    std::fs::write(&arquivo, format!("\u{feff}{csv}")).map_err(|e| e.to_string())?;
+    std::process::Command::new(&programa).arg(&arquivo).spawn().map(drop).map_err(|e| trf("Não foi possível abrir o FeatherSheet: {}", &[&e]))
 }
 
 fn arquivo_conexoes() -> Option<std::path::PathBuf> {
@@ -1319,6 +1345,19 @@ impl pelicano::App for App {
                     };
                 }
             }
+            Msg::AbrirNaPlanilha => {
+                if let Some(r) = &self.resultado {
+                    let texto = grade::separado(r, &self.visiveis, ',');
+                    self.aviso = tr("Abrindo no FeatherSheet…").to_owned();
+                    return em_segundo_plano(move || abrir_na_planilha(&texto), Msg::AbertoNaPlanilha);
+                }
+            }
+            Msg::AbertoNaPlanilha(r) => {
+                self.aviso = match r {
+                    Ok(()) => tr("Resultado aberto no FeatherSheet.").to_owned(),
+                    Err(e) => e,
+                };
+            }
             Msg::ExportarCsv => return self.exportar(),
             Msg::ExportarPara(c) => {
                 if let Some(c) = c {
@@ -1943,6 +1982,7 @@ impl App {
         barra = barra.push(filtro);
         barra
             .push(acao_pequena(feather_ui::icones::icone_traco("copy", 15.0), tr("Copiar tudo (cola na planilha)"), Some(Msg::Copiar)))
+            .push(acao_pequena(feather_ui::icones::icone_traco("table", 15.0), tr("Abrir no FeatherSheet"), Some(Msg::AbrirNaPlanilha)))
             .push(acao_pequena(feather_ui::icones::icone_traco("file-export", 15.0), tr("Exportar (CSV, JSON, SQL ou Markdown)"), Some(Msg::ExportarCsv)))
     }
 

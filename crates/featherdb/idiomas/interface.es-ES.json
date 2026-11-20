@@ -19,7 +19,7 @@
  "Clique numa conexão para conectar e abrir as tabelas. Clique numa tabela para ver as colunas e o tipo de cada uma.": "Haga clic en una conexión para conectar y abrir las tablas. Haga clic en una tabla para ver las columnas y el tipo de cada una.",
  "Clique duplo numa tabela mostra os dados dela na grade.": "Doble clic en una tabla muestra sus datos en la cuadrícula.",
  "Criou uma tabela? O botão Atualizar tabelas lê a lista de novo.": "¿Creó una tabla? El botón Actualizar tablas vuelve a leer la lista.",
- "Copiar tudo põe o resultado na área de transferência, pronto para colar no FeatherSheet ou no Excel. Exportar CSV grava um arquivo.": "Copiar todo pone el resultado en el portapapeles, listo para pegar en FeatherSheet o Excel. Exportar CSV guarda un archivo.",
+ "Copiar tudo põe o resultado na área de transferência, pronto para colar no FeatherSheet ou no Excel. Exportar CSV grava um arquivo. Abrir no FeatherSheet (ícone de tabela) abre o resultado direto na planilha.": "Copiar todo pone el resultado en el portapapeles, listo para pegar en FeatherSheet o Excel. Exportar CSV guarda un archivo. Abrir en FeatherSheet (icono de tabla) abre el resultado directamente en la hoja de cálculo.",
  "O texto do editor é guardado ao rodar e ao fechar, e volta na próxima vez que você abrir o FeatherDB.": "El texto del editor se guarda al ejecutar y al cerrar, y vuelve la próxima vez que abra FeatherDB.",
  "Rodar o comando do cursor": "Ejecutar la sentencia del cursor",
  "Rodar o script inteiro": "Ejecutar todo el script",
@@ -467,5 +467,10 @@
  "Há mudanças sem Commit em {}. Se continuar, o banco desfaz essas mudanças.": "Hay cambios sin Commit en {}. Si continúa, la base de datos los deshace.",
  "Fechar e desfazer": "Cerrar y deshacer",
  "Desconectar e desfazer": "Desconectar y deshacer",
- "Transação aberta": "Transacción abierta"
+ "Transação aberta": "Transacción abierta",
+ "Abrindo no FeatherSheet…": "Abriendo en FeatherSheet…",
+ "Resultado aberto no FeatherSheet.": "Resultado abierto en FeatherSheet.",
+ "Abrir no FeatherSheet": "Abrir en FeatherSheet",
+ "O FeatherSheet não foi encontrado. Instale pelo site da FeatherWorks ou use Copiar tudo.": "No se encontró FeatherSheet. Instálelo desde el sitio de FeatherWorks o use Copiar todo.",
+ "Não foi possível abrir o FeatherSheet: {}": "No se pudo abrir FeatherSheet: {}"
 }
