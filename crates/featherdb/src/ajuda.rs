@@ -154,6 +154,7 @@ fn montar() -> Catalogo {
                     t("Clique no nome de uma coluna para ordenar (de novo inverte, a terceira volta à ordem do banco). Filtrar linhas esconde as que não têm o texto."),
                     t("Clique numa célula para ver o valor inteiro no painel da direita (JSON arrumado) e as contas da coluna: soma, média, mínimo, máximo e quantos diferentes."),
                     t("Botão direito numa célula copia o valor ou a linha como INSERT ou JSON, ou tudo para planilha, INSERT, JSON ou Markdown. Exportar grava CSV, JSON, SQL ou Markdown, pela extensão escolhida."),
+                    t("O botão com a tabela, ao lado de Copiar tudo, abre o resultado direto no FeatherSheet (precisa do FeatherSheet instalado)."),
                 ]),
                 topico("estrutura", "Estrutura das tabelas", vec![
                     t("A aba Estrutura mostra cada coluna com o tipo, se aceita vazio, o valor padrão e a chave. O lápis edita a coluna e mostra o SQL antes de aplicar."),
