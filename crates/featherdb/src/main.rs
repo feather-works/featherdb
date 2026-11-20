@@ -1340,7 +1340,7 @@ impl pelicano::App for App {
                 if let Some(r) = &self.resultado {
                     let texto = grade::separado(r, &self.visiveis, '\t');
                     self.aviso = match arboard::Clipboard::new().and_then(|mut c| c.set_text(texto)) {
-                        Ok(()) => trf("{} linhas copiadas (cole na planilha).", &[&self.visiveis.len()]),
+                        Ok(()) => trf("{} linhas copiadas (cole na planilha).", &[&self.visiveis.len()]) + &self.so_carregadas(),
                         Err(e) => trf("Não foi possível copiar: {}", &[&e]),
                     };
                 }
@@ -1354,7 +1354,7 @@ impl pelicano::App for App {
             }
             Msg::AbertoNaPlanilha(r) => {
                 self.aviso = match r {
-                    Ok(()) => tr("Resultado aberto no FeatherSheet.").to_owned(),
+                    Ok(()) => tr("Resultado aberto no FeatherSheet.").to_owned() + &self.so_carregadas(),
                     Err(e) => e,
                 };
             }

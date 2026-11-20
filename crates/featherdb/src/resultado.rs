@@ -115,9 +115,18 @@ impl App {
             _ => grade::separado(r, &self.visiveis, ','),
         };
         self.aviso = match std::fs::write(&caminho, conteudo) {
-            Ok(()) => trf("Salvo em {}", &[&caminho.display()]),
+            Ok(()) => trf("Salvo em {}", &[&caminho.display()]) + &self.so_carregadas(),
             Err(e) => trf("Não foi possível salvar: {}", &[&e]),
         };
+    }
+
+    /// A consulta tem mais linhas que as carregadas: copiar, exportar e abrir na planilha levam só
+    /// estas, e o aviso diz (senão parece o resultado inteiro).
+    pub(crate) fn so_carregadas(&self) -> String {
+        match &self.resultado {
+            Some(r) if r.cortado => " ".to_owned() + &trf("Só as {} linhas carregadas: a consulta tem mais (+1000 linhas busca as próximas).", &[&r.linhas.len()]),
+            _ => String::new(),
+        }
     }
 
     /// O painel de valor, à direita da grade: a célula escolhida por inteiro e as contas da coluna.

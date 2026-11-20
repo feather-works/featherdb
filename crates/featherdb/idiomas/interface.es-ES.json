@@ -473,5 +473,6 @@
  "Resultado aberto no FeatherSheet.": "Resultado abierto en FeatherSheet.",
  "Abrir no FeatherSheet": "Abrir en FeatherSheet",
  "O FeatherSheet não foi encontrado. Instale pelo site da FeatherWorks ou use Copiar tudo.": "No se encontró FeatherSheet. Instálelo desde el sitio de FeatherWorks o use Copiar todo.",
- "Não foi possível abrir o FeatherSheet: {}": "No se pudo abrir FeatherSheet: {}"
+ "Não foi possível abrir o FeatherSheet: {}": "No se pudo abrir FeatherSheet: {}",
+ "Só as {} linhas carregadas: a consulta tem mais (+1000 linhas busca as próximas).": "Solo las {} filas cargadas: la consulta tiene más (+1000 filas trae las siguientes)."
 }
