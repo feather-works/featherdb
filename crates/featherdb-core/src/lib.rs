@@ -561,7 +561,42 @@ pub fn so_le(sql: &str) -> bool {
     let p = inicio(sql).split(|c: char| !c.is_ascii_alphanumeric() && c != '.').next().unwrap_or("").to_ascii_lowercase();
     let l = sql.to_ascii_lowercase();
     let escreve = ["insert", "update", "delete", "merge", "replace", "drop", "create", "alter"].iter().any(|w| l.contains(w));
-    matches!(p.as_str(), "select" | "show" | "explain" | "describe" | "desc" | "values" | "table") || ((p == "with" || p.starts_with("db.")) && !escreve)
+    // `SELECT … INTO tabela` (Postgres, SQL Server) cria tabela; `INTO OUTFILE` (MySQL) grava arquivo.
+    let into = (p == "select" || p == "with") && palavras_fora_de_texto(sql).iter().any(|w| w == "into");
+    !into && (matches!(p.as_str(), "select" | "show" | "explain" | "describe" | "desc" | "values" | "table") || ((p == "with" || p.starts_with("db.")) && !escreve))
+}
+
+/// As palavras do SQL em minúsculas, sem o que está entre aspas e em comentários.
+fn palavras_fora_de_texto(sql: &str) -> Vec<String> {
+    let b = sql.as_bytes();
+    let mut limpo = String::with_capacity(sql.len());
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            q @ (b'\'' | b'"' | b'`') => {
+                i += 1;
+                while i < b.len() && b[i] != q {
+                    i += 1;
+                }
+                limpo.push(' ');
+            }
+            b'-' if b.get(i + 1) == Some(&b'-') => {
+                while i < b.len() && b[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'/' if b.get(i + 1) == Some(&b'*') => {
+                i += 2;
+                while i + 1 < b.len() && !(b[i] == b'*' && b[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 1;
+            }
+            c => limpo.push(if c.is_ascii_alphanumeric() || c == b'_' { c.to_ascii_lowercase() as char } else { ' ' }),
+        }
+        i += 1;
+    }
+    limpo.split_whitespace().map(str::to_owned).collect()
 }
 
 /// Os parâmetros `:nome` do SQL, na ordem e sem repetir. Não contam: `::tipo` do Postgres, `a[1:2]`,
@@ -828,6 +863,8 @@ mod testes {
         assert_eq!(sem_where("UPDATE t SET a = 1\nWHERE id = 2"), None);
         assert_eq!(sem_where("SELECT * FROM t"), None);
         assert_eq!(sem_where("/* x */ delete from t"), Some("DELETE"));
+        assert!(!so_le("SELECT * INTO nova FROM t") && muda_dados("select a into outfile '/tmp/x' from t"));
+        assert!(so_le("SELECT 'into' AS x -- into") && so_le("select pinto from t"));
         assert_eq!(sem_where("UPDATE t SET a = (SELECT b FROM u WHERE u.id = 1)"), Some("UPDATE"));
         assert_eq!(sem_where("DELETE FROM t WHERE id IN (SELECT id FROM u WHERE x)"), None);
         assert_eq!(sem_where("WITH x AS (SELECT 1 FROM u WHERE y) UPDATE t SET a = 1"), Some("UPDATE"));
