@@ -8,6 +8,18 @@ A ideia do DBeaver, sem o peso: abre na hora e usa cerca de 100 MB de memória.
 
 ![FeatherDB](docs/featherdb.png)
 
+## Baixar
+
+| Sistema | Arquivo | Como instalar |
+|---|---|---|
+| **Windows 10/11** | [FeatherDB-windows-x64.exe](https://github.com/feather-works/featherdb/releases/latest/download/FeatherDB-windows-x64.exe) | rode o instalador; ou use o [zip portátil](https://github.com/feather-works/featherdb/releases/latest/download/FeatherDB-windows-x64-portatil.zip) |
+| **Linux** (Ubuntu, Debian, Mint…) | [featherdb-linux-amd64.deb](https://github.com/feather-works/featherdb/releases/latest/download/featherdb-linux-amd64.deb) | `sudo apt install ./featherdb-linux-amd64.deb` |
+| **Linux** (qualquer distribuição) | [featherdb-linux-x86_64.tar.gz](https://github.com/feather-works/featherdb/releases/latest/download/featherdb-linux-x86_64.tar.gz) | extraia e rode `./instalar.sh` |
+
+Todas as versões e o `SHA256SUMS` estão na [página de releases](https://github.com/feather-works/featherdb/releases). Bancos por ODBC precisam do gerenciador (unixODBC no Linux) e do driver do banco.
+
+Dúvidas, defeitos ou melhorias? Fale com a gente: contato@maragon.dev
+
 ## O que faz
 
 - **Conexões:** PostgreSQL, MySQL/MariaDB e SQLite prontos (TLS para bancos na nuvem, com "só criptografar" para servidor interno, CA da empresa e certificado do cliente). Cole um endereço

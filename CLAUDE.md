@@ -54,6 +54,10 @@ outro projeto) e `../feather-ui-pelicano/GUIA-JANELAS.md` (ícones só Tabler, c
   de conectar com sucesso. Excluir a conexão ou desligar o lembrar apaga do cofre. Arquivos em `~/.config/featherdb/`: `config.txt`, `conexoes.txt`, `rascunho.sql`.
 - Idiomas: o texto em português no código é a chave; `idiomas/interface.{en-US,es-ES}.json`. Os testes
   conferem que todo `tr`/`trf` literal, a Ajuda e as Novidades têm tradução nas duas línguas.
+- Pacotes: `pacote/gerar.sh [linux|windows]` (cópia do esquema do FeatherPDF) gera em `pacote/saida/` o `.deb`, o `.tar.gz` (o que o
+  FeatherWorks Launcher baixa), o instalador NSIS, o zip portátil e o `SHA256SUMS`. Linux compila num contêiner Debian 12
+  (podman); Windows pelo alvo `x86_64-pc-windows-gnu` (`build.rs` embute ícone, manifesto e nome do .exe). Ícones em
+  `pacote/icones/` saíram do `featherdb.svg` do README da organização (Inkscape + PIL para o `.ico`).
 - Marca: a pena da suíte recolorida em `#0b7285` dentro do app (`main.rs::marca`); passar para
   `feather_ui::marca::Produto` quando a feather-ui ganhar o FeatherDB.
 - Testes: SQLite de ponta a ponta; ODBC contra o unixODBC (erro `IM002` de DSN inexistente); Postgres de

@@ -86,6 +86,7 @@ pub(crate) static VERSOES: [novidades::Versao; 1] = [novidades::Versao {
         "Importar CSV numa tabela, tudo ou nada.",
         "Parâmetros :nome perguntados antes de rodar; Ctrl+/ comenta a linha; trocar o * pelas colunas.",
         "Diagrama das tabelas com as chaves estrangeiras e sessões ativas do servidor.",
+        "Dúvidas, defeitos ou melhorias? Fale com a gente: contato@maragon.dev",
     ],
 }];
 

@@ -8,6 +8,18 @@ La idea de DBeaver, sin el peso: abre al instante y usa unos 100 MB de memoria.
 
 ![FeatherDB](docs/featherdb.png)
 
+## Descargar
+
+| Sistema | Archivo | Cómo instalar |
+|---|---|---|
+| **Windows 10/11** | [FeatherDB-windows-x64.exe](https://github.com/feather-works/featherdb/releases/latest/download/FeatherDB-windows-x64.exe) | ejecute el instalador; o use el [zip portátil](https://github.com/feather-works/featherdb/releases/latest/download/FeatherDB-windows-x64-portatil.zip) |
+| **Linux** (Ubuntu, Debian, Mint…) | [featherdb-linux-amd64.deb](https://github.com/feather-works/featherdb/releases/latest/download/featherdb-linux-amd64.deb) | `sudo apt install ./featherdb-linux-amd64.deb` |
+| **Linux** (cualquier distribución) | [featherdb-linux-x86_64.tar.gz](https://github.com/feather-works/featherdb/releases/latest/download/featherdb-linux-x86_64.tar.gz) | extraiga y ejecute `./instalar.sh` |
+
+Todas las versiones y el `SHA256SUMS` están en la [página de releases](https://github.com/feather-works/featherdb/releases). Las bases por ODBC necesitan el gestor (unixODBC en Linux) y el driver de la base.
+
+¿Dudas, errores o mejoras? Escríbenos: contato@maragon.dev
+
 ## Qué hace
 
 - **Conexiones:** PostgreSQL, MySQL/MariaDB y SQLite incluidos (TLS para bases en la nube, con "solo cifrar" para servidores internos, CA de la empresa y certificado del cliente). Pegue una

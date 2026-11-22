@@ -291,6 +291,7 @@
  "Editar os dados na grade com clique duplo; Salvar mostra os UPDATE e grava tudo ou nada.": "Edit data in the grid with a double click; Save shows the UPDATEs and writes all or nothing.",
  "Aviso antes de DELETE ou UPDATE sem WHERE.": "Warning before a DELETE or UPDATE without WHERE.",
  "Parar a consulta que está rodando.": "Stop the running query.",
+ "Dúvidas, defeitos ou melhorias? Fale com a gente: contato@maragon.dev": "Questions, bugs or ideas? Write to contato@maragon.dev",
  "Ordenar pela coluna e filtrar as linhas do resultado.": "Sort by column and filter the result rows.",
  "Histórico das consultas rodadas (Ctrl+H).": "History of queries you ran (Ctrl+H).",
  "Formatar o SQL (Ctrl+Shift+F) e ver o plano da consulta (EXPLAIN).": "Format the SQL (Ctrl+Shift+F) and see the query plan (EXPLAIN).",

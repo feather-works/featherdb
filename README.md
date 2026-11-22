@@ -8,6 +8,18 @@ Think DBeaver, without the weight: it opens instantly and uses about 100 MB of R
 
 ![FeatherDB](docs/featherdb.png)
 
+## Download
+
+| System | File | How to install |
+|---|---|---|
+| **Windows 10/11** | [FeatherDB-windows-x64.exe](https://github.com/feather-works/featherdb/releases/latest/download/FeatherDB-windows-x64.exe) | run the installer; or use the [portable zip](https://github.com/feather-works/featherdb/releases/latest/download/FeatherDB-windows-x64-portatil.zip) |
+| **Linux** (Ubuntu, Debian, Mint…) | [featherdb-linux-amd64.deb](https://github.com/feather-works/featherdb/releases/latest/download/featherdb-linux-amd64.deb) | `sudo apt install ./featherdb-linux-amd64.deb` |
+| **Linux** (any distribution) | [featherdb-linux-x86_64.tar.gz](https://github.com/feather-works/featherdb/releases/latest/download/featherdb-linux-x86_64.tar.gz) | extract it and run `./instalar.sh` |
+
+Every version and the `SHA256SUMS` are on the [releases page](https://github.com/feather-works/featherdb/releases). ODBC databases need the driver manager (unixODBC on Linux) and the database's driver.
+
+Questions, bugs or ideas? Write to contato@maragon.dev
+
 ## What it does
 
 - **Connections:** PostgreSQL, MySQL/MariaDB and SQLite built in (TLS for cloud databases, with "encrypt only" for internal servers, a company CA and client certificates). Paste a

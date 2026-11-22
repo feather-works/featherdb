@@ -14,3 +14,7 @@ rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "t
 arboard = { version = "3.6", features = ["wayland-data-control"] }
 tokio = { version = "1", features = ["rt"] }
 serde_json = "1"
+
+[build-dependencies]
+# Ícone, manifesto e nome do .exe do Windows (build.rs).
+embed-resource = "3"

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=FeatherDB
+GenericName=Cliente de banco de dados
+Comment=Cliente de banco de dados leve da suíte FeatherWorks
+Exec=featherdb %F
+Icon=featherdb
+Terminal=false
+Categories=Development;Database;
+Keywords=sql;banco;database;postgres;mysql;sqlite;mongodb;odbc;
+StartupWMClass=featherdb

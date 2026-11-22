@@ -291,6 +291,7 @@
  "Editar os dados na grade com clique duplo; Salvar mostra os UPDATE e grava tudo ou nada.": "Editar los datos en la cuadrícula con doble clic; Guardar muestra los UPDATE y graba todo o nada.",
  "Aviso antes de DELETE ou UPDATE sem WHERE.": "Aviso antes de un DELETE o UPDATE sin WHERE.",
  "Parar a consulta que está rodando.": "Detener la consulta en curso.",
+ "Dúvidas, defeitos ou melhorias? Fale com a gente: contato@maragon.dev": "¿Dudas, errores o mejoras? Escríbenos: contato@maragon.dev",
  "Ordenar pela coluna e filtrar as linhas do resultado.": "Ordenar por columna y filtrar las filas del resultado.",
  "Histórico das consultas rodadas (Ctrl+H).": "Historial de las consultas ejecutadas (Ctrl+H).",
  "Formatar o SQL (Ctrl+Shift+F) e ver o plano da consulta (EXPLAIN).": "Formatear el SQL (Ctrl+Shift+F) y ver el plan de la consulta (EXPLAIN).",
