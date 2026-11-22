@@ -12,6 +12,7 @@
 # e o .deb só instala em distros com a glibc desta máquina); para Windows, o alvo
 # x86_64-pc-windows-gnu, mingw-w64, makensis e zip.
 set -euo pipefail
+# O cofre de senhas (keyring) usa o D-Bus do sistema: a imagem leva o libdbus-1-dev.
 
 pacote="$(cd "$(dirname "$0")" && pwd)"
 raiz="$(dirname "$pacote")"
@@ -34,16 +35,16 @@ compilar_linux() {
     return
   fi
   # A imagem com o Rust sai uma vez só; o registro de crates fica guardado num volume.
-  if ! "$motor" image exists featherdb-debian12 2>/dev/null && ! "$motor" image inspect featherdb-debian12 >/dev/null 2>&1; then
-    "$motor" build -t featherdb-debian12 -f - "$pacote" <<'IMG'
+  if ! "$motor" image exists featherdb-debian12-dbus 2>/dev/null && ! "$motor" image inspect featherdb-debian12-dbus >/dev/null 2>&1; then
+    "$motor" build -t featherdb-debian12-dbus -f - "$pacote" <<'IMG'
 FROM docker.io/library/debian:12
-RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev curl ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev pkg-config libdbus-1-dev curl ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 ENV PATH=/root/.cargo/bin:$PATH
 IMG
   fi
   "$motor" run --rm -v "$raiz":/src:z -v featherdb-registro:/root/.cargo/registry -e CARGO_TARGET_DIR=/src/target/debian12 -e CARGO_BUILD_JOBS -w /src \
-    featherdb-debian12 cargo build --release -p featherdb
+    featherdb-debian12-dbus cargo build --release -p featherdb
   bin="$raiz/target/debian12/release/featherdb"
 }
 
@@ -71,7 +72,7 @@ Section: database
 Priority: optional
 Architecture: amd64
 Installed-Size: $tamanho
-Depends: libc6 (>= $glibc), libxkbcommon0, libwayland-client0 | libx11-6, libfontconfig1
+Depends: libc6 (>= $glibc), libdbus-1-3, libxkbcommon0, libwayland-client0 | libx11-6, libfontconfig1
 Recommends: libvulkan1 | libgl1, unixodbc
 Maintainer: FeatherWorks <https://github.com/feather-works>
 Homepage: https://github.com/feather-works/featherdb
