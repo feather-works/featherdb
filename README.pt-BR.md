@@ -1,5 +1,7 @@
 # FeatherDB
 
+[![Discord](https://img.shields.io/badge/Discord-Maragon.Dev-5865F2?logo=discord&logoColor=white)](https://discord.gg/b4Epb4eSSH)
+
 Cliente de banco de dados leve da suíte [FeatherWorks](https://github.com/feather-works), em Rust com o
 [pelicano](https://github.com/feather-works/pelicano) e a [feather-ui](https://github.com/feather-works/feather-ui).
 A ideia do DBeaver, sem o peso: abre na hora e usa cerca de 100 MB de memória.
